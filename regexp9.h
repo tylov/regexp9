@@ -9,7 +9,6 @@
 extern "C" { 
 #endif
 
-typedef unsigned short  Rune;
 typedef struct Resub    Resub;
 typedef struct Reprog   Reprog;
 
@@ -17,16 +16,8 @@ typedef struct Reprog   Reprog;
  *    Sub expression matches
  */
 struct Resub{
-    union
-    {
-        char *sp;
-        Rune *rsp;
-    }s;
-    union
-    {
-        char *ep;
-        Rune *rep;
-    }e;
+    char *sp;
+    char *ep;
 };
 
 extern Reprog   *regcomp9(char*);

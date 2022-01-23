@@ -40,6 +40,7 @@
  * utf.h *
  *********/
 
+typedef unsigned short  Rune;
 typedef struct Reclass  Reclass;
 typedef struct Reinst   Reinst;
 
@@ -307,14 +308,14 @@ _renewmatch(Resub *mp, int ms, Resublist *sp)
 {
     int i;
 
-    if(mp==0 || ms<=0)
+    if(mp==NULL || ms<=0)
         return;
-    if(mp[0].s.sp==0 || sp->m[0].s.sp<mp[0].s.sp ||
-       (sp->m[0].s.sp==mp[0].s.sp && sp->m[0].e.ep>mp[0].e.ep)){
+    if(mp[0].sp==NULL || sp->m[0].sp<mp[0].sp ||
+       (sp->m[0].sp==mp[0].sp && sp->m[0].ep>mp[0].ep)){
         for(i=0; i<ms && i<NSUBEXP; i++)
             mp[i] = sp->m[i];
         for(; i<ms; i++)
-            mp[i].s.sp = mp[i].e.ep = NULL;
+            mp[i].sp = mp[i].ep = NULL;
     }
 }
 
@@ -333,7 +334,7 @@ _renewthread(Relist *lp,    /* _relist to add to */
 
     for(p=lp; p->inst; p++){
         if(p->inst == ip){
-            if(sep->m[0].s.sp < p->se.m[0].s.sp){
+            if(sep->m[0].sp < p->se.m[0].sp){
                 if(ms > 1)
                     p->se = *sep;
                 else
@@ -365,10 +366,10 @@ _renewemptythread(Relist *lp,    /* _relist to add to */
 
     for(p=lp; p->inst; p++){
         if(p->inst == ip){
-            if(sp < p->se.m[0].s.sp) {
+            if(sp < p->se.m[0].sp) {
                 if(ms > 1)
                     memset(&p->se, 0, sizeof(p->se));
-                p->se.m[0].s.sp = sp;
+                p->se.m[0].sp = sp;
             }
             return 0;
         }
@@ -376,7 +377,7 @@ _renewemptythread(Relist *lp,    /* _relist to add to */
     p->inst = ip;
     if(ms > 1)
         memset(&p->se, 0, sizeof(p->se));
-    p->se.m[0].s.sp = sp;
+    p->se.m[0].sp = sp;
     (++p)->inst = NULL;
     return p;
 }
@@ -635,7 +636,7 @@ optimize(Reprog *pp)
      */
     size = sizeof(Reprog) + (freep - pp->firstinst)*sizeof(Reinst);
     npp = realloc(pp, size);
-    if(npp==0 || npp==pp)
+    if(npp==NULL || npp==pp)
         return pp;
     diff = (char *)npp - (char *)pp;
     freep = (Reinst *)((char *)freep + diff);
@@ -973,8 +974,8 @@ regexec1(const Reprog *progp,    /* program to run */
     checkstart = j->starttype;
     if(mp)
         for(i=0; i<ms; i++) {
-            mp[i].s.sp = NULL;
-            mp[i].e.ep = NULL;
+            mp[i].sp = NULL;
+            mp[i].ep = NULL;
         }
     j->relist[0][0].inst = NULL;
     j->relist[1][0].inst = NULL;
@@ -1029,10 +1030,10 @@ regexec1(const Reprog *progp,    /* program to run */
                     }
                     break;
                 case LBRA:
-                    tlp->se.m[inst->r.subid].s.sp = s;
+                    tlp->se.m[inst->r.subid].sp = s;
                     continue;
                 case RBRA:
-                    tlp->se.m[inst->r.subid].e.ep = s;
+                    tlp->se.m[inst->r.subid].ep = s;
                     continue;
                 case ANY:
                     if(r != '\n')
@@ -1077,7 +1078,7 @@ regexec1(const Reprog *progp,    /* program to run */
                     continue;
                 case END:    /* Match! */
                     match = 1;
-                    tlp->se.m[0].e.ep = s;
+                    tlp->se.m[0].ep = s;
                     if(mp != NULL)
                         _renewmatch(mp, ms, &tlp->se);
                     break;
@@ -1087,7 +1088,7 @@ regexec1(const Reprog *progp,    /* program to run */
         }
         if(s == j->eol)
             break;
-        checkstart = j->starttype && nl->inst==0;
+        checkstart = j->starttype && nl->inst==NULL;
         s += n;
     }while(r);
     return match;
@@ -1140,10 +1141,10 @@ regexec9(const Reprog *progp,    /* program to run */
     j.starts = bol;
     j.eol = NULL;
     if(mp && ms>0){
-        if(mp->s.sp)
-            j.starts = mp->s.sp;
-        if(mp->e.ep)
-            j.eol = mp->e.ep;
+        if(mp->sp)
+            j.starts = mp->sp;
+        if(mp->ep)
+            j.eol = mp->ep;
     }
     j.starttype = 0;
     j.startchar = 0;
@@ -1199,9 +1200,9 @@ regsub9(char *sp,    /* source string */
             case '8':
             case '9':
                 i = *sp-'0';
-                if(mp[i].s.sp != NULL && mp!=NULL && ms>i)
-                    for(ssp = mp[i].s.sp;
-                         ssp < mp[i].e.ep;
+                if(mp[i].sp != NULL && mp!=NULL && ms>i)
+                    for(ssp = mp[i].sp;
+                         ssp < mp[i].ep;
                          ssp++)
                         if(dp < ep)
                             *dp++ = *ssp;
@@ -1219,10 +1220,10 @@ regsub9(char *sp,    /* source string */
                 break;
             }
         }else if(*sp == '&'){                
-            if(mp[0].s.sp != NULL && mp!=NULL && ms>0)
-            if(mp[0].s.sp != NULL)
-                for(ssp = mp[0].s.sp;
-                     ssp < mp[0].e.ep; ssp++)
+            if(mp[0].sp != NULL && mp!=NULL && ms>0)
+            if(mp[0].sp != NULL)
+                for(ssp = mp[0].sp;
+                     ssp < mp[0].ep; ssp++)
                     if(dp < ep)
                         *dp++ = *ssp;
         }else{
