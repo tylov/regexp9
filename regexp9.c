@@ -304,92 +304,94 @@ typedef struct Node
     Reinst*    last;
 } Node;
 
-#define    NSTACK    20
-static    Node    andstack[NSTACK];
-static    Node    *andp;
-static    int    atorstack[NSTACK];
-static    int*    atorp;
-static    int    cursubid;        /* id of current subexpression */
-static    int    subidstack[NSTACK];    /* parallel to atorstack */
-static    int*    subidp;
-static    int    lastwasand;    /* Last token was operand */
-static    int    nbra;
-static    const char*    exprp;        /* pointer to next character in source expression */
-static    int    lexdone;
-static    int    nclass;
-static    Reclass*classp;
-static    Reinst*    freep;
-static    int    errors;
-static    Rune    yyrune;        /* last lex'd rune */
-static    Reclass*yyclassp;    /* last lex'd class */
+#define NSTACK 20
+typedef struct Parser
+{
+    Node andstack[NSTACK];
+    Node* andp;
+    int atorstack[NSTACK];
+    int* atorp;
+    int cursubid;        /* id of current subexpression */
+    int subidstack[NSTACK]; /* parallel to atorstack */
+    int* subidp;
+    int lastwasand;      /* Last token was operand */
+    int nbra;
+    const char* exprp;   /* pointer to next character in source expression */
+    int lexdone;
+    int nclass;
+    Reclass*classp;
+    Reinst* freep;
+    int errors;
+    Rune yyrune;         /* last lex'd rune */
+    Reclass *yyclassp;   /* last lex'd class */
+    jmp_buf regkaboom;
+} Parser;
 
 /* predeclared crap */
-static    void    operator(int);
-static    void    pushand(Reinst*, Reinst*);
-static    void    pushator(int);
-static    void    evaluntil(int);
-static    int    bldcclass(void);
-extern    void    regerror9(const char*);
+static void operator(Parser *par, int type);
+static void pushand(Parser *par, Reinst *first, Reinst *last);
+static void pushator(Parser *par, int type);
+static void evaluntil(Parser *par, int type);
+static int  bldcclass(Parser *par);
+extern void regerror9(const char*);
 
-static jmp_buf regkaboom;
-
-static    void
-rcerror(const char *s)
+static void
+rcerror(Parser *par, const char *s)
 {
-    errors++;
+    par->errors++;
     regerror9(s);
-    longjmp(regkaboom, 1);
+    longjmp(par->regkaboom, 1);
 }
 
-static    Reinst*
-newinst(int t)
+static Reinst*
+newinst(Parser *par, int t)
 {
-    freep->type = t;
-    freep->l.left = NULL;
-    freep->r.right = NULL;
-    return freep++;
+    par->freep->type = t;
+    par->freep->l.left = 0;
+    par->freep->r.right = 0;
+    return par->freep++;
 }
 
-static    void
-operand(int t)
+static void
+operand(Parser *par, int t)
 {
     Reinst *i;
 
-    if (lastwasand)
-        operator(CAT);    /* catenate is implicit */
-    i = newinst(t);
+    if (par->lastwasand)
+        operator(par, CAT);    /* catenate is implicit */
+    i = newinst(par, t);
 
     if (t == CCLASS || t == NCCLASS)
-        i->r.classp = yyclassp;
+        i->r.classp = par->yyclassp;
     if (t == RUNE)
-        i->r.rune = yyrune;
+        i->r.rune = par->yyrune;
 
-    pushand(i, i);
-    lastwasand = TRUE;
+    pushand(par, i, i);
+    par->lastwasand = TRUE;
 }
 
-static    void
-operator(int t)
+static void
+operator(Parser *par, int t)
 {
-    if (t==RBRA && --nbra<0)
-        rcerror("unmatched right paren");
+    if (t==RBRA && --par->nbra<0)
+        rcerror(par, "unmatched right paren");
     if (t==LBRA) {
-        if (++cursubid >= NSUBEXP)
-            rcerror ("too many subexpressions");
-        nbra++;
-        if (lastwasand)
-            operator(CAT);
+        if (++par->cursubid >= NSUBEXP)
+            rcerror(par, "too many subexpressions");
+        par->nbra++;
+        if (par->lastwasand)
+            operator(par, CAT);
     } else
-        evaluntil(t);
+        evaluntil(par, t);
     if (t != RBRA)
-        pushator(t);
-    lastwasand = FALSE;
+        pushator(par, t);
+    par->lastwasand = 0;
     if (t==STAR || t==QUEST || t==PLUS || t==RBRA)
-        lastwasand = TRUE;    /* these look like operands */
+        par->lastwasand = TRUE;    /* these look like operands */
 }
 
-static    void
-regerr2(const char *s, int c)
+static void
+regerr2(Parser *par, const char *s, int c)
 {
     char buf[100];
     char *cp = buf;
@@ -397,137 +399,137 @@ regerr2(const char *s, int c)
         *cp++ = *s++;
     *cp++ = c;
     *cp = '\0'; 
-    rcerror(buf);
+    rcerror(par, buf);
 }
 
-static    void
-cant(const char *s)
+static void
+cant(Parser *par, const char *s)
 {
     char buf[100];
     strcpy(buf, "can't happen: ");
     strcat(buf, s);
-    rcerror(buf);
+    rcerror(par, buf);
 }
 
-static    void
-pushand(Reinst *f, Reinst *l)
+static void
+pushand(Parser *par, Reinst *f, Reinst *l)
 {
-    if (andp >= &andstack[NSTACK])
-        cant("operand stack overflow");
-    andp->first = f;
-    andp->last = l;
-    andp++;
+    if (par->andp >= &par->andstack[NSTACK])
+        cant(par, "operand stack overflow");
+    par->andp->first = f;
+    par->andp->last = l;
+    par->andp++;
 }
 
-static    void
-pushator(int t)
+static void
+pushator(Parser *par, int t)
 {
-    if (atorp >= &atorstack[NSTACK])
-        cant("operator stack overflow");
-    *atorp++ = t;
-    *subidp++ = cursubid;
+    if (par->atorp >= &par->atorstack[NSTACK])
+        cant(par, "operator stack overflow");
+    *par->atorp++ = t;
+    *par->subidp++ = par->cursubid;
 }
 
-static    Node*
-popand(int op)
+static Node*
+popand(Parser *par, int op)
 {
     Reinst *inst;
 
-    if (andp <= &andstack[0]) {
-        regerr2("missing operand for ", op);
-        inst = newinst(NOP);
-        pushand(inst,inst);
+    if (par->andp <= &par->andstack[0]) {
+        regerr2(par, "missing operand for ", op);
+        inst = newinst(par, NOP);
+        pushand(par, inst, inst);
     }
-    return --andp;
+    return --par->andp;
 }
 
-static    int
-popator(void)
+static int
+popator(Parser *par)
 {
-    if (atorp <= &atorstack[0])
-        cant("operator stack underflow");
-    --subidp;
-    return *--atorp;
+    if (par->atorp <= &par->atorstack[0])
+        cant(par, "operator stack underflow");
+    --par->subidp;
+    return *--par->atorp;
 }
 
-static    void
-evaluntil(int pri)
+static void
+evaluntil(Parser *par, int pri)
 {
     Node *op1, *op2;
     Reinst *inst1, *inst2;
 
-    while (pri==RBRA || atorp[-1]>=pri) {
-        switch (popator()) {
+    while (pri==RBRA || par->atorp[-1]>=pri) {
+        switch (popator(par)) {
         default:
-            rcerror("unknown operator in evaluntil");
+            rcerror(par, "unknown operator in evaluntil");
             break;
         case LBRA:        /* must have been RBRA */
-            op1 = popand('(');
-            inst2 = newinst(RBRA);
-            inst2->r.subid = *subidp;
+            op1 = popand(par, '(');
+            inst2 = newinst(par, RBRA);
+            inst2->r.subid = *par->subidp;
             op1->last->l.next = inst2;
-            inst1 = newinst(LBRA);
-            inst1->r.subid = *subidp;
+            inst1 = newinst(par, LBRA);
+            inst1->r.subid = *par->subidp;
             inst1->l.next = op1->first;
-            pushand(inst1, inst2);
+            pushand(par, inst1, inst2);
             return;
         case OR:
-            op2 = popand('|');
-            op1 = popand('|');
-            inst2 = newinst(NOP);
+            op2 = popand(par, '|');
+            op1 = popand(par, '|');
+            inst2 = newinst(par, NOP);
             op2->last->l.next = inst2;
             op1->last->l.next = inst2;
-            inst1 = newinst(OR);
+            inst1 = newinst(par, OR);
             inst1->r.right = op1->first;
             inst1->l.left = op2->first;
-            pushand(inst1, inst2);
+            pushand(par, inst1, inst2);
             break;
         case CAT:
-            op2 = popand(0);
-            op1 = popand(0);
+            op2 = popand(par, 0);
+            op1 = popand(par, 0);
             op1->last->l.next = op2->first;
-            pushand(op1->first, op2->last);
+            pushand(par, op1->first, op2->last);
             break;
         case STAR:
-            op2 = popand('*');
-            inst1 = newinst(OR);
+            op2 = popand(par, '*');
+            inst1 = newinst(par, OR);
             op2->last->l.next = inst1;
             inst1->r.right = op2->first;
-            pushand(inst1, inst1);
+            pushand(par, inst1, inst1);
             break;
         case PLUS:
-            op2 = popand('+');
-            inst1 = newinst(OR);
+            op2 = popand(par, '+');
+            inst1 = newinst(par, OR);
             op2->last->l.next = inst1;
             inst1->r.right = op2->first;
-            pushand(op2->first, inst1);
+            pushand(par, op2->first, inst1);
             break;
         case QUEST:
-            op2 = popand('?');
-            inst1 = newinst(OR);
-            inst2 = newinst(NOP);
+            op2 = popand(par, '?');
+            inst1 = newinst(par, OR);
+            inst2 = newinst(par, NOP);
             inst1->l.left = inst2;
             inst1->r.right = op2->first;
             op2->last->l.next = inst2;
-            pushand(inst1, inst2);
+            pushand(par, inst1, inst2);
             break;
         }
     }
 }
 
-static    Reprog*
-optimize(Reprog *pp)
+static Reprog*
+optimize(Parser *par, Reprog *pp)
 {
     Reinst *inst, *target;
-    int size;
+    size_t size;
     Reprog *npp;
     Reclass *cl;
-    int diff;
+    ptrdiff_t diff;
 
     /*
      *  get rid of NOOP chains
      */
-    for (inst=pp->firstinst; inst->type!=END; inst++) {
+    for (inst = pp->firstinst; inst->type != END; inst++) {
         target = inst->l.next;
         while (target->type == NOP)
             target = target->l.next;
@@ -539,48 +541,48 @@ optimize(Reprog *pp)
      *  necessary.  Reallocate to the actual space used
      *  and then relocate the code.
      */
-    size = sizeof(Reprog) + (freep - pp->firstinst)*sizeof(Reinst);
-    npp = realloc(pp, size);
+    size = sizeof(Reprog) + (par->freep - pp->firstinst)*sizeof(Reinst);
+    npp = (Reprog*)realloc(pp, size);
     if (npp==NULL || npp==pp)
         return pp;
     diff = (char *)npp - (char *)pp;
-    freep = (Reinst *)((char *)freep + diff);
-    for (inst=npp->firstinst; inst<freep; inst++) {
+    par->freep = (Reinst *)((char *)par->freep + diff);
+    for (inst = npp->firstinst; inst < par->freep; inst++) {
         switch (inst->type) {
         case OR:
         case STAR:
         case PLUS:
         case QUEST:
-            inst->r.right = (void*)((char*)inst->r.right + diff);
+            inst->r.right = (Reinst*)((char*)inst->r.right + diff);
             break;
         case CCLASS:
         case NCCLASS:
-            inst->r.right = (void*)((char*)inst->r.right + diff);
+            inst->r.right = (Reinst*)((char*)inst->r.right + diff);
             cl = inst->r.classp;
-            cl->end = (void*)((char*)cl->end + diff);
+            cl->end = (Rune*)((char*)cl->end + diff);
             break;
         }
-        inst->l.left = (void*)((char*)inst->l.left + diff);
+        inst->l.left = (Reinst*)((char*)inst->l.left + diff);
     }
-    npp->startinst = (void*)((char*)npp->startinst + diff);
+    npp->startinst = (Reinst*)((char*)npp->startinst + diff);
     return npp;
 }
 
-#ifdef    DEBUG
-static    void
-dumpstack(void) {
+#ifdef  DEBUG
+static void
+dumpstack(Parser *par) {
     Node *stk;
     int *ip;
 
     print("operators\n");
-    for (ip=atorstack; ip<atorp; ip++)
+    for (ip = par->atorstack; ip < par->atorp; ip++)
         print("0%o\n", *ip);
     print("operands\n");
-    for (stk=andstack; stk<andp; stk++)
+    for (stk = par->andstack; stk < par->andp; stk++)
         print("0%o\t0%o\n", stk->first->type, stk->last->type);
 }
 
-static    void
+static void
 dump(Reprog *pp)
 {
     Reinst *l;
@@ -608,44 +610,44 @@ dump(Reprog *pp)
 }
 #endif
 
-static    Reclass*
-newclass(void)
+static Reclass*
+newclass(Parser *par)
 {
-    if (nclass >= NCLASS)
-        regerr2("too many character classes; limit", NCLASS+'0');
-    return &(classp[nclass++]);
+    if (par->nclass >= NCLASS)
+        regerr2(par, "too many character classes; limit", NCLASS+'0');
+    return &(par->classp[par->nclass++]);
 }
 
-static    int
-nextc(Rune *rp)
+static int
+nextc(Parser *par, Rune *rp)
 {
-    if (lexdone) {
+    if (par->lexdone) {
         *rp = 0;
         return 1;
     }
-    exprp += chartorune(rp, exprp);
+    par->exprp += chartorune(rp, par->exprp);
     if (*rp == '\\') {
-        exprp += chartorune(rp, exprp);
+        par->exprp += chartorune(rp, par->exprp);
         return 1;
     }
     if (*rp == 0)
-        lexdone = 1;
+        par->lexdone = 1;
     return 0;
 }
 
-static    int
-lex(int literal, int dot_type)
+static int
+lex(Parser *par, int literal, int dot_type)
 {
     int quoted;
 
-    quoted = nextc(&yyrune);
+    quoted = nextc(par, &par->yyrune);
     if (literal || quoted) {
-        if (yyrune == 0)
+        if (par->yyrune == 0)
             return END;
         return RUNE;
     }
 
-    switch (yyrune) {
+    switch (par->yyrune) {
     case 0:
         return END;
     case '*':
@@ -667,13 +669,13 @@ lex(int literal, int dot_type)
     case '$':
         return EOL;
     case '[':
-        return bldcclass();
+        return bldcclass(par);
     }
     return RUNE;
 }
 
 static int
-bldcclass(void)
+bldcclass(Parser *par)
 {
     int type;
     Rune r[NCCRUNE];
@@ -683,35 +685,35 @@ bldcclass(void)
 
     /* we have already seen the '[' */
     type = CCLASS;
-    yyclassp = newclass();
+    par->yyclassp = newclass(par);
 
     /* look ahead for negation */
     /* SPECIAL CASE!!! negated classes don't match \n */
     ep = r;
-    quoted = nextc(&rune);
+    quoted = nextc(par, &rune);
     if (!quoted && rune == '^') {
         type = NCCLASS;
-        quoted = nextc(&rune);
+        quoted = nextc(par, &rune);
         *ep++ = '\n';
         *ep++ = '\n';
     }
 
     /* parse class into a set of spans */
-    for (; ep<&r[NCCRUNE];) {
+    for (; ep < &r[NCCRUNE];) {
         if (rune == 0) {
-            rcerror("malformed '[]'");
+            rcerror(par, "malformed '[]'");
             return 0;
         }
         if (!quoted && rune == ']')
             break;
         if (!quoted && rune == '-') {
             if (ep == r) {
-                rcerror("malformed '[]'");
+                rcerror(par, "malformed '[]'");
                 return 0;
             }
-            quoted = nextc(&rune);
+            quoted = nextc(par, &rune);
             if ((!quoted && rune == ']') || rune == 0) {
-                rcerror("malformed '[]'");
+                rcerror(par, "malformed '[]'");
                 return 0;
             }
             *(ep-1) = rune;
@@ -719,7 +721,7 @@ bldcclass(void)
             *ep++ = rune;
             *ep++ = rune;
         }
-        quoted = nextc(&rune);
+        quoted = nextc(par, &rune);
     }
 
     /* sort on span start */
@@ -736,10 +738,10 @@ bldcclass(void)
     }
 
     /* merge spans */
-    np = yyclassp->spans;
+    np = par->yyclassp->spans;
     p = r;
     if (r == ep)
-        yyclassp->end = np;
+        par->yyclassp->end = np;
     else {
         np[0] = *p++;
         np[1] = *p++;
@@ -752,14 +754,14 @@ bldcclass(void)
                 np[0] = p[0];
                 np[1] = p[1];
             }
-        yyclassp->end = np+2;
+        par->yyclassp->end = np+2;
     }
 
     return type;
 }
 
-static    Reprog*
-regcomp1(const char *s, int literal, int dot_type)
+static Reprog*
+regcomp1(Parser *par, const char *s, int literal, int dot_type)
 {
     int token;
     Reprog *volatile pp;
@@ -768,58 +770,58 @@ regcomp1(const char *s, int literal, int dot_type)
     pp = malloc(sizeof(Reprog) + 6*sizeof(Reinst)*strlen(s));
     if (pp == NULL) {
         regerror9("out of memory");
-        return 0;
+        return NULL;
     }
-    freep = pp->firstinst;
-    classp = pp->class;
-    errors = 0;
+    par->freep = pp->firstinst;
+    par->classp = pp->class;
+    par->errors = 0;
 
-    if (setjmp(regkaboom))
+    if (setjmp(par->regkaboom))
         goto out;
 
     /* go compile the sucker */
-    lexdone = 0;
-    exprp = s;
-    nclass = 0;
-    nbra = 0;
-    atorp = atorstack;
-    andp = andstack;
-    subidp = subidstack;
-    lastwasand = FALSE;
-    cursubid = 0;
+    par->lexdone = 0;
+    par->exprp = s;
+    par->nclass = 0;
+    par->nbra = 0;
+    par->atorp = par->atorstack;
+    par->andp = par->andstack;
+    par->subidp = par->subidstack;
+    par->lastwasand = FALSE;
+    par->cursubid = 0;
 
     /* Start with a low priority operator to prime parser */
-    pushator(START-1);
-    while ((token = lex(literal, dot_type)) != END) {
+    pushator(par, START-1);
+    while ((token = lex(par, literal, dot_type)) != END) {
         if ((token & 0360) == OPERATOR)
-            operator(token);
+            operator(par, token);
         else
-            operand(token);
+            operand(par, token);
     }
 
     /* Close with a low priority operator */
-    evaluntil(START);
+    evaluntil(par, START);
 
     /* Force END */
-    operand(END);
-    evaluntil(START);
+    operand(par, END);
+    evaluntil(par, START);
 #ifdef DEBUG
-    dumpstack();
+    dumpstack(par);
 #endif
-    if (nbra)
-        rcerror("unmatched left paren");
-    --andp;    /* points to first and only operand */
-    pp->startinst = andp->first;
+    if (par->nbra)
+        rcerror(par, "unmatched left paren");
+    --par->andp;    /* points to first and only operand */
+    pp->startinst = par->andp->first;
 #ifdef DEBUG
     dump(pp);
 #endif
-    pp = optimize(pp);
+    pp = optimize(par, pp);
 #ifdef DEBUG
-    print("start: %d\n", andp->first-pp->firstinst);
+    print("start: %d\n", par->andp->first-pp->firstinst);
     dump(pp);
 #endif
 out:
-    if (errors) {
+    if (par->errors) {
         free(pp);
         pp = NULL;
     }
@@ -829,19 +831,22 @@ out:
 extern    Reprog*
 regcomp9(const char *s)
 {
-    return regcomp1(s, 0, ANY);
+    Parser par;
+    return regcomp1(&par, s, 0, ANY);
 }
 
 extern    Reprog*
 regcomplit9(const char *s)
 {
-    return regcomp1(s, 1, ANY);
+    Parser par;
+    return regcomp1(&par, s, 1, ANY);
 }
 
 extern    Reprog*
 regcompnl9(const char *s)
 {
-    return regcomp1(s, 0, ANYNL);
+    Parser par;
+    return regcomp1(&par, s, 0, ANYNL);
 }
 
 /*************

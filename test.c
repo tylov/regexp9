@@ -10,7 +10,8 @@ int main(int argc, char *argv[])
     enum {N=4};
     Resub rs[N];
     Reprog *p;
-    char *buf, *q, *pos;
+    char *buf, *q; 
+    const char *pos;
     int l = 0;
     if (argc == 1) {
         fprintf(stderr, "Usage: cat in.file | %s <regexp>\n", argv[0]);
@@ -26,10 +27,10 @@ int main(int argc, char *argv[])
         pos = buf;
         while (regexec9(p, pos, rs, N) > 0) {
             printf("%d:", l);
-            for (int i=0; i<N; ++i) printf("%.*s|", (int)(rs[i].e.ep - rs[i].s.sp), rs[i].s.sp);
+            for (int i=0; i<N; ++i) printf("%.*s|", (int)(rs[i].ep - rs[i].sp), rs[i].sp);
             puts("");
-            pos = rs[0].e.ep;
-            rs[0].s.sp = rs[0].e.ep = 0;
+            pos = rs[0].ep;
+            rs[0].sp = rs[0].ep = 0;
         }
     }
     free(buf);
