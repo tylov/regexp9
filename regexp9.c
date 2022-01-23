@@ -158,8 +158,8 @@ struct    Reljunk
     Relist*  reliste[2];
     int      starttype;
     Rune     startchar;
-    char*    starts;
-    char*    eol;
+    const char*    starts;
+    const char*    eol;
     Rune*    rstarts;
     Rune*    reol;
 };
@@ -269,15 +269,15 @@ runestrchr(const Rune *s, Rune c)
     return 0;
 }
 
-char*
-utfrune(char *s, long c)
+const char*
+utfrune(const char *s, long c)
 {
     long c1;
     Rune r;
     int n;
 
     if(c < Runesync)        /* not part of utf sequence */
-        return strchr(s, c);
+        return strchr((char *)s, c);
 
     for(;;) {
         c1 = *(uchar*)s;
@@ -360,7 +360,7 @@ static Relist*
 _renewemptythread(Relist *lp,    /* _relist to add to */
     Reinst *ip,        /* instruction to add */
     int ms,
-    char *sp)        /* pointers to subexpressions */
+    const char *sp)        /* pointers to subexpressions */
 {
     Relist *p;
 
@@ -409,7 +409,7 @@ static    int    subidstack[NSTACK];    /* parallel to atorstack */
 static    int*    subidp;
 static    int    lastwasand;    /* Last token was operand */
 static    int    nbra;
-static    char*    exprp;        /* pointer to next character in source expression */
+static    const char*    exprp;        /* pointer to next character in source expression */
 static    int    lexdone;
 static    int    nclass;
 static    Reclass*classp;
@@ -424,12 +424,12 @@ static    void    pushand(Reinst*, Reinst*);
 static    void    pushator(int);
 static    void    evaluntil(int);
 static    int    bldcclass(void);
-extern    void    regerror9(char*);
+extern    void    regerror9(const char*);
 
 static jmp_buf regkaboom;
 
 static    void
-rcerror(char *s)
+rcerror(const char *s)
 {
     errors++;
     regerror9(s);
@@ -484,7 +484,7 @@ operator(int t)
 }
 
 static    void
-regerr2(char *s, int c)
+regerr2(const char *s, int c)
 {
     char buf[100];
     char *cp = buf;
@@ -496,7 +496,7 @@ regerr2(char *s, int c)
 }
 
 static    void
-cant(char *s)
+cant(const char *s)
 {
     char buf[100];
     strcpy(buf, "can't happen: ");
@@ -854,7 +854,7 @@ bldcclass(void)
 }
 
 static    Reprog*
-regcomp1(char *s, int literal, int dot_type)
+regcomp1(const char *s, int literal, int dot_type)
 {
     int token;
     Reprog *volatile pp;
@@ -922,19 +922,19 @@ out:
 }
 
 extern    Reprog*
-regcomp9(char *s)
+regcomp9(const char *s)
 {
     return regcomp1(s, 0, ANY);
 }
 
 extern    Reprog*
-regcomplit9(char *s)
+regcomplit9(const char *s)
 {
     return regcomp1(s, 1, ANY);
 }
 
 extern    Reprog*
-regcompnl9(char *s)
+regcompnl9(const char *s)
 {
     return regcomp1(s, 0, ANYNL);
 }
@@ -950,7 +950,7 @@ regcompnl9(char *s)
  */
 static int
 regexec1(const Reprog *progp,    /* program to run */
-    char *bol,    /* string to run machine on */
+    const char *bol,    /* string to run machine on */
     Resub *mp,    /* subexpression elements */
     int ms,        /* number of elements at mp */
     Reljunk *j
@@ -959,7 +959,7 @@ regexec1(const Reprog *progp,    /* program to run */
     int flag=0;
     Reinst *inst;
     Relist *tlp;
-    char *s;
+    const char *s;
     int i, checkstart;
     Rune r, *rp, *ep;
     int n;
@@ -968,7 +968,7 @@ regexec1(const Reprog *progp,    /* program to run */
     Relist* tle;        /* ends of this and next list */
     Relist* nle;
     int match;
-    char *p;
+    const char *p;
 
     match = 0;
     checkstart = j->starttype;
@@ -1096,7 +1096,7 @@ regexec1(const Reprog *progp,    /* program to run */
 
 static int
 regexec2(const Reprog *progp,    /* program to run */
-    char *bol,    /* string to run machine on */
+    const char *bol,    /* string to run machine on */
     Resub *mp,    /* subexpression elements */
     int ms,        /* number of elements at mp */
     Reljunk *j
@@ -1127,7 +1127,7 @@ regexec2(const Reprog *progp,    /* program to run */
 
 extern int
 regexec9(const Reprog *progp,    /* program to run */
-    char *bol,    /* string to run machine on */
+    const char *bol,    /* string to run machine on */
     Resub *mp,    /* subexpression elements */
     int ms)        /* number of elements at mp */
 {
@@ -1176,13 +1176,13 @@ regexec9(const Reprog *progp,    /* program to run */
 
 /* substitute into one string using the matches from the last regexec() */
 extern    void
-regsub9(char *sp,    /* source string */
+regsub9(const char *sp,    /* source string */
     char *dp,    /* destination string */
     int dlen,
     Resub *mp,    /* subexpression elements */
     int ms)        /* number of elements pointed to by mp */
 {
-    char *ssp, *ep;
+    const char *ssp, *ep;
     int i;
 
     ep = dp+dlen-1;
@@ -1242,7 +1242,7 @@ regsub9(char *sp,    /* source string */
 #include <stdio.h>
 
 void
-regerror9(char *s)
+regerror9(const char *s)
 {
     fprintf(stderr, "regerror: %s\n", s);
 }

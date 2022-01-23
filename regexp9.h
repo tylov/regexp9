@@ -16,15 +16,15 @@ typedef struct Reprog   Reprog;
  *    Sub expression matches
  */
 struct Resub{
-    char *sp;
-    char *ep;
+    const char *sp;
+    const char *ep;
 };
 
-extern Reprog   *regcomp9(char*);
-extern Reprog   *regcomplit9(char*);
-extern Reprog   *regcompnl9(char*);
-extern int      regexec9(const Reprog*, char*, Resub*, int);
-extern void     regsub9(char*, char*, int, Resub*, int);
+extern Reprog   *regcomp9(const char*);
+extern Reprog   *regcomplit9(const char*);
+extern Reprog   *regcompnl9(const char*);
+extern int      regexec9(const Reprog*, const char*, Resub*, int);
+extern void     regsub9(const char*, char*, int, Resub*, int);
 
 #if defined(__cplusplus)
 }
