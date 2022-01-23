@@ -59,7 +59,8 @@ enum
 /*
  *    character class, each pair of rune's defines a range
  */
-struct Reclass{
+struct Reclass
+{
     Rune    *end;
     Rune    spans[64];
 };
@@ -67,9 +68,10 @@ struct Reclass{
 /*
  *    Machine instructions
  */
-struct Reinst{
+struct Reinst
+{
     int type;
-    union    {
+    union {
         Reclass *classp;     /* class pointer */
         Rune    rune;        /* character */
         int     subid;       /* sub-expression id for RBRA and LBRA */
@@ -84,7 +86,8 @@ struct Reinst{
 /*
  *    Reprogram definition
  */
-struct Reprog{
+struct Reprog
+{
     Reinst  *startinst;     /* start pc */
     Reclass class[16];      /* .data */
     Reinst  firstinst[5];   /* .text */
@@ -109,11 +112,11 @@ struct    Resublist
 };
 
 /* max character classes per program */
-extern Reprog    RePrOg;
-#define NCLASS    (sizeof(RePrOg.class)/sizeof(Reclass))
+extern Reprog   RePrOg;
+#define NCLASS  (sizeof(RePrOg.class)/sizeof(Reclass))
 
 /* max rune ranges per character class */
-#define NCCRUNE    (sizeof(Reclass)/sizeof(Rune))
+#define NCCRUNE (sizeof(Reclass)/sizeof(Rune))
 
 /*
  * Actions and Tokens (Reinst types)
@@ -680,7 +683,7 @@ dump(Reprog *pp)
     Rune *p;
 
     l = pp->firstinst;
-    do{
+    do {
         print("%d:\t0%o\t%d\t%d", l-pp->firstinst, l->type,
             l->l.left-pp->firstinst, l->r.right-pp->firstinst);
         if (l->type == RUNE)
