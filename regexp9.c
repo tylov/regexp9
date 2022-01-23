@@ -26,6 +26,7 @@ THE SOFTWARE.
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <stdbool.h>
 #include <setjmp.h>
 #include <string.h>
@@ -1164,4 +1165,10 @@ extern void
 regerror9(const char *s)
 {
     fprintf(stderr, "regerror: %s\n", s);
+}
+
+extern void
+regfree9(Reprog* prog)
+{
+    free(prog);
 }

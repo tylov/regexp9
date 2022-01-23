@@ -12,4 +12,25 @@ Regular expressions based on Plan9 code.
 - Formatting changes: tabs to space, etc.
 - Optimizations: malloc usage and shorter code. Fast UTF8 code.
 - Compiles with C99, C++.
-- Total new code size reduced to < 1200 lines (header ~50).
+- Reduced source code size from about 1600 to 1200 lines.
+
+## Examples
+```c
+#include "regexp9.h"
+#include <stdio.h>
+
+int main() {
+    const char* pattern = "hell.([ \\t]w.rld)+";
+    const char* input = "hell😀 w😀rld\tworld wxrld";
+
+    enum {N=5};
+    Resub rs[N] = {0};
+
+    Reprog *p = regcomp9(pattern);
+    if (regexec9(p, input, rs, N))
+        printf("regexp9: '%s' => matched: %s\n", input, pattern);
+    else
+        printf("regexp9: No match\n");
+    free(p);
+}
+```
