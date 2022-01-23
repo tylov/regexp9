@@ -1,35 +1,27 @@
 /*
-  Copyright information from the original package:
-*/
-/*
-  The authors of this software is Rob Pike.
-        Copyright (c) 2002 by Lucent Technologies.
-  Permission to use, copy, modify, and distribute this software for any
-  purpose without fee is hereby granted, provided that this entire notice
-  is included in all copies of any software which is or includes a copy
-  or modification of this software and in all copies of the supporting
-  documentation for such software.
-  THIS SOFTWARE IS BEING PROVIDED "AS IS", WITHOUT ANY EXPRESS OR IMPLIED
-  WARRANTY.  IN PARTICULAR, NEITHER THE AUTHORS NOR LUCENT TECHNOLOGIES MAKE ANY
-  REPRESENTATION OR WARRANTY OF ANY KIND CONCERNING THE MERCHANTABILITY
-  OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR PURPOSE.
+This is a Unix port of the Plan 9 regular expression library, by Rob Pike.
+Please send comments about the packaging to Russ Cox <rsc@swtch.com>.
 
+Copyright © 2021 Plan 9 Foundation
+Copyright © 2022 Tyge Løvset, for additions made in 2022.
 
-  This is a Unix port of the Plan 9 regular expression library.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-  Please send comments about the packaging
-  to Russ Cox <rsc@swtch.com>.
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
 
-  ----
-
-  This software is also made available under the Lucent Public License
-  version 1.02; see http://plan9.bell-labs.com/plan9dist/license.html
-*/
-/*
-  This software was packaged for Unix by Russ Cox.
-  Please send comments to rsc@swtch.com.
-
-  http://swtch.com/plan9port/unix
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 */
 
 #include <stdlib.h>
@@ -43,6 +35,12 @@
  *************/
 
 typedef uint32_t Rune;
+/* max character classes per program */
+#define NCLASS 16
+/* max subexpressions */
+#define NSUBEXP 32
+/* max rune ranges per character class */
+#define NCCRUNE (NSUBEXP * 2)
 
 /*
  *    character class, each pair of rune's defines a range
@@ -51,7 +49,7 @@ typedef struct Reclass  Reclass;
 struct Reclass
 {
     Rune    *end;
-    Rune    spans[64];
+    Rune    spans[NSUBEXP * 2];
 };
 
 /*
@@ -79,8 +77,8 @@ struct Reinst
 struct Reprog
 {
     Reinst  *startinst;     /* start pc */
-    Reclass _class[16];     /* .data */
-    Reinst  firstinst[5];   /* .text */
+    Reclass _class[NCLASS]; /* .data */
+    Reinst  firstinst[];    /* .text : originally 5 elements? */
 };
 
 /*************
@@ -90,23 +88,11 @@ struct Reprog
 /*
  *  substitution list
  */
-#define uchar __reuchar
-typedef unsigned char uchar;
-#define nelem(x) (sizeof(x)/sizeof((x)[0]))
-
-#define NSUBEXP 32
 typedef struct Resublist    Resublist;
-struct    Resublist
+struct Resublist
 {
-    Resub   m[NSUBEXP];
+    Resub m[NSUBEXP];
 };
-
-/* max character classes per program */
-extern Reprog   RePrOg;
-#define NCLASS  (sizeof(RePrOg._class)/sizeof(Reclass))
-
-/* max rune ranges per character class */
-#define NCCRUNE (sizeof(Reclass)/sizeof(Rune))
 
 /*
  * Actions and Tokens (Reinst types)
@@ -542,7 +528,7 @@ optimize(Parser *par, Reprog *pp)
      *  and then relocate the code.
      */
     size = sizeof(Reprog) + (par->freep - pp->firstinst)*sizeof(Reinst);
-    npp = (Reprog*)realloc(pp, size);
+    npp = (Reprog *)realloc(pp, size);
     if (npp==NULL || npp==pp)
         return pp;
     diff = (char *)npp - (char *)pp;
@@ -553,18 +539,18 @@ optimize(Parser *par, Reprog *pp)
         case STAR:
         case PLUS:
         case QUEST:
-            inst->r.right = (Reinst*)((char*)inst->r.right + diff);
+            inst->r.right = (Reinst *)((char*)inst->r.right + diff);
             break;
         case CCLASS:
         case NCCLASS:
-            inst->r.right = (Reinst*)((char*)inst->r.right + diff);
+            inst->r.right = (Reinst *)((char*)inst->r.right + diff);
             cl = inst->r.classp;
-            cl->end = (Rune*)((char*)cl->end + diff);
+            cl->end = (Rune *)((char*)cl->end + diff);
             break;
         }
-        inst->l.left = (Reinst*)((char*)inst->l.left + diff);
+        inst->l.left = (Reinst *)((char*)inst->l.left + diff);
     }
-    npp->startinst = (Reinst*)((char*)npp->startinst + diff);
+    npp->startinst = (Reinst *)((char*)npp->startinst + diff);
     return npp;
 }
 
@@ -767,7 +753,8 @@ regcomp1(Parser *par, const char *s, int literal, int dot_type)
     Reprog *volatile pp;
 
     /* get memory for the program */
-    pp = (Reprog *)malloc(sizeof(Reprog) + 6*sizeof(Reinst)*strlen(s));
+    const int instcap = 5 + 6*strlen(s); /* equals original; seems excessive? */
+    pp = (Reprog *)malloc(sizeof(Reprog) + instcap*sizeof(Reinst));
     if (pp == NULL) {
         regerror9("out of memory");
         return NULL;
@@ -1064,8 +1051,8 @@ regexec9(const Reprog *progp,    /* program to run */
     /* mark space */
     j.relist[0] = relist0;
     j.relist[1] = relist1;
-    j.reliste[0] = relist0 + nelem(relist0) - 2;
-    j.reliste[1] = relist1 + nelem(relist1) - 2;
+    j.reliste[0] = relist0 + LISTSIZE - 2;
+    j.reliste[1] = relist1 + LISTSIZE - 2;
 
     rv = regexec1(progp, bol, mp, ms, &j);
     if (rv >= 0)
