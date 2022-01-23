@@ -33,32 +33,21 @@
 */
 
 #include <stdlib.h>
+#include <stdint.h>
 #include <setjmp.h>
+#include <string.h>
 #include "regexp9.h"
-
-/*********
- * utf.h *
- *********/
-
-typedef unsigned short  Rune;
-typedef struct Reclass  Reclass;
-typedef struct Reinst   Reinst;
-
-enum
-{
-    UTFmax      = 3,        /* maximum bytes per rune */
-    Runesync    = 0x80,     /* cannot represent part of a UTF sequence (<) */
-    Runeself    = 0x80,     /* rune and UTF sequences are the same (<) */
-    Runeerror   = 0xFFFD        /* decoding error in UTF */
-};
 
 /*************
  * regexp9.h *
  *************/
 
+typedef uint32_t Rune;
+
 /*
  *    character class, each pair of rune's defines a range
  */
+typedef struct Reclass  Reclass;
 struct Reclass
 {
     Rune    *end;
@@ -68,6 +57,7 @@ struct Reclass
 /*
  *    Machine instructions
  */
+typedef struct Reinst   Reinst;
 struct Reinst
 {
     int type;
@@ -134,14 +124,14 @@ extern Reprog   RePrOg;
 #define STAR        0205    /* Closure, * */
 #define PLUS        0206    /* a+ == aa* */
 #define QUEST       0207    /* a? == a|nothing, i.e. 0 or 1 a's */
-#define ANY         0300    /* Any character except newline, . */
-#define ANYNL       0301    /* Any character including newline, . */
-#define NOP         0302    /* No operation, internal use only */
-#define BOL         0303    /* Beginning of line, ^ */
-#define EOL         0304    /* End of line, $ */
-#define CCLASS      0305    /* Character class, [] */
-#define NCCLASS     0306    /* Negated character class, [] */
-#define END         0377    /* Terminate: match found */
+#define ANY         0260    /* Any character except newline, . */
+#define ANYNL       0261    /* Any character including newline, . */
+#define NOP         0262    /* No operation, internal use only */
+#define BOL         0263    /* Beginning of line, ^ */
+#define EOL         0264    /* End of line, $ */
+#define CCLASS      0265    /* Character class, [] */
+#define NCCLASS     0266    /* Negated character class, [] */
+#define END         0277    /* Terminate: match found */
 
 /*
  *  regexec execution lists
@@ -166,134 +156,48 @@ struct Reljunk
     const char* eol;
 };
 
-/****************************************************
- * Routines from rune.c, runestrchr.c and utfrune.c *
- ****************************************************/
+/**********************
+ * utf8 and Rune code
+ **********************/
 
-#include <stdarg.h>
-#include <string.h>
-
-enum
+static inline int
+utf8_codep_size(const char* s) /* branchless */
 {
-    Bit1    = 7,
-    Bitx    = 6,
-    Bit2    = 5,
-    Bit3    = 4,
-    Bit4    = 3,
-
-    T1    = ((1<<(Bit1+1))-1) ^ 0xFF,    /* 0000 0000 */
-    Tx    = ((1<<(Bitx+1))-1) ^ 0xFF,    /* 1000 0000 */
-    T2    = ((1<<(Bit2+1))-1) ^ 0xFF,    /* 1100 0000 */
-    T3    = ((1<<(Bit3+1))-1) ^ 0xFF,    /* 1110 0000 */
-    T4    = ((1<<(Bit4+1))-1) ^ 0xFF,    /* 1111 0000 */
-
-    Rune1    = (1<<(Bit1+0*Bitx))-1,        /* 0000 0000 0111 1111 */
-    Rune2    = (1<<(Bit2+1*Bitx))-1,        /* 0000 0111 1111 1111 */
-    Rune3    = (1<<(Bit3+2*Bitx))-1,        /* 1111 1111 1111 1111 */
-
-    Maskx    = (1<<Bitx)-1,            /* 0011 1111 */
-    Testx    = Maskx ^ 0xFF,            /* 1100 0000 */
-
-    Bad    = Runeerror
-};
-
-int
-chartorune(Rune *rune, const char *str)
-{
-    int c, c1, c2;
-    long l;
-
-    /*
-     * one character sequence
-     *    00000-0007F => T1
-     */
-    c = *(uchar*)str;
-    if (c < Tx) {
-        *rune = c;
-        return 1;
-    }
-
-    /*
-     * two character sequence
-     *    0080-07FF => T2 Tx
-     */
-    c1 = *(uchar*)(str+1) ^ Tx;
-    if (c1 & Testx)
-        goto bad;
-    if (c < T3) {
-        if (c < T2)
-            goto bad;
-        l = ((c << Bitx) | c1) & Rune2;
-        if (l <= Rune1)
-            goto bad;
-        *rune = l;
-        return 2;
-    }
-
-    /*
-     * three character sequence
-     *    0800-FFFF => T3 Tx Tx
-     */
-    c2 = *(uchar*)(str+2) ^ Tx;
-    if (c2 & Testx)
-        goto bad;
-    if (c < T4) {
-        l = ((((c << Bitx) | c1) << Bitx) | c2) & Rune3;
-        if (l <= Rune2)
-            goto bad;
-        *rune = l;
-        return 3;
-    }
-
-    /*
-     * bad decoding
-     */
-bad:
-    *rune = Bad;
-    return 1;
+    uint8_t u = (uint8_t)*s;
+    int ret = (u & 0xF0) == 0xE0;
+    ret += ret << 1;                       /* 3 */
+    ret |= u < 0x80;                       /* 1 */
+    ret |= ((0xC1 < u) & (u < 0xE0)) << 1; /* 2 */
+    ret |= ((0xEF < u) & (u < 0xF5)) << 2; /* 4 */
+    return ret;
 }
 
-Rune*
-runestrchr(const Rune *s, Rune c)
+static int
+chartorune(Rune *rune, const char *s)
 {
-    Rune c0 = c;
-    Rune c1;
-
-    if (c == 0) {
-        while (*s++)
-            ;
-        return (Rune*)s-1;
+    int n = utf8_codep_size(s);
+    *rune = s[0];
+    switch (n) {
+    case 4: *rune |= s[3] << 24;
+    case 3: *rune |= s[2] << 16;
+    case 2: *rune |= s[1] << 8;
     }
-
-    while ((c1 = *s++))
-        if (c1 == c0)
-            return (Rune*)s-1;
-    return 0;
+    return n;    
 }
 
-const char*
-utfrune(const char *s, long c)
+static const char*
+utfrune(const char *s, Rune c)
 {
-    long c1;
     Rune r;
     int n;
 
-    if (c < Runesync)        /* not part of utf sequence */
+    if (c < 128)        /* ascii */
         return strchr((char *)s, c);
 
     for (;;) {
-        c1 = *(uchar*)s;
-        if (c1 < Runeself) {    /* one byte rune */
-            if (c1 == 0)
-                return 0;
-            if (c1 == c)
-                return s;
-            s++;
-            continue;
-        }
         n = chartorune(&r, s);
-        if (r == c)
-            return s;
+        if (r == c) return s;
+        if ((r == 0) | (n == 0)) return NULL;
         s += n;
     }
 }
@@ -887,7 +791,7 @@ regcomp1(const char *s, int literal, int dot_type)
     /* Start with a low priority operator to prime parser */
     pushator(START-1);
     while ((token = lex(literal, dot_type)) != END) {
-        if ((token&0300) == OPERATOR)
+        if ((token & 0360) == OPERATOR)
             operator(token);
         else
             operand(token);
@@ -983,7 +887,7 @@ regexec1(const Reprog *progp,    /* program to run */
 
     /* Execute machine once for each character, including terminal NUL */
     s = j->starts;
-    do{
+    do {
         /* fast check for first char */
         if (checkstart) {
             switch (j->starttype) {
@@ -1003,11 +907,7 @@ regexec1(const Reprog *progp,    /* program to run */
                 break;
             }
         }
-        r = *(uchar*)s;
-        if (r < Runeself)
-            n = 1;
-        else
-            n = chartorune(&r, s);
+        n = chartorune(&r, s);
 
         /* switch run lists */
         tl = j->relist[flag];
@@ -1149,7 +1049,7 @@ regexec9(const Reprog *progp,    /* program to run */
     }
     j.starttype = 0;
     j.startchar = 0;
-    if (progp->startinst->type == RUNE && progp->startinst->r.rune < Runeself) {
+    if (progp->startinst->type == RUNE && progp->startinst->r.rune < 128) {
         j.starttype = RUNE;
         j.startchar = progp->startinst->r.rune;
     }
