@@ -26,6 +26,7 @@ THE SOFTWARE.
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <setjmp.h>
 #include <string.h>
 #include <ctype.h>
@@ -49,28 +50,27 @@ typedef uint32_t Rune;
 typedef struct Reclass  Reclass;
 struct Reclass
 {
-    Rune    *end;
-    Rune    spans[NSUBEXP * 2];
+    Rune *end;
+    Rune spans[NCCRUNE];
 };
 
 /*
  *    Machine instructions
  */
-typedef struct Reinst   Reinst;
-struct Reinst
+typedef struct Reinst
 {
     int type;
     union {
-        Reclass *classp;     /* class pointer */
-        Rune    rune;        /* character */
-        int     subid;       /* sub-expression id for RBRA and LBRA */
-        Reinst  *right;      /* right child of OR */
+        Reclass *classp;        /* class pointer */
+        Rune    rune;           /* character */
+        int     subid;          /* sub-expression id for RBRA and LBRA */
+        struct Reinst *right;   /* right child of OR */
     } r;
     union {    /* regexp relies on these two being in the same union */
-        Reinst *left;        /* left child of OR */
-        Reinst *next;        /* next instruction for CAT & LBRA */
+        struct Reinst *left;    /* left child of OR */
+        struct Reinst *next;    /* next instruction for CAT & LBRA */
     } l;
-};
+} Reinst;
 
 /*
  *    Reprogram definition
@@ -89,11 +89,10 @@ struct Reprog
 /*
  *  substitution list
  */
-typedef struct Resublist    Resublist;
-struct Resublist
+typedef struct Resublist
 {
     Resub m[NSUBEXP];
-};
+} Resublist;
 
 /*
  * Actions and Tokens (Reinst types)
@@ -142,15 +141,14 @@ struct Resublist
  */
 #define LISTSIZE    10
 #define BIGLISTSIZE (10*LISTSIZE)
-typedef struct Relist   Relist;
-struct Relist
+
+typedef struct Relist
 {
     Reinst*     inst;       /* Reinstruction of the thread */
     Resublist   se;         /* matched subexpressions in this thread */
-};
+} Relist;
 
-typedef struct Reljunk  Reljunk;
-struct Reljunk
+typedef struct Reljunk
 {
     Relist*     relist[2];
     Relist*     reliste[2];
@@ -158,7 +156,7 @@ struct Reljunk
     Rune        startchar;
     const char* starts;
     const char* eol;
-};
+} Reljunk;
 
 /**********************
  * utf8 and Rune code
@@ -267,10 +265,10 @@ _renewthread(Relist *lp,    /* _relist to add to */
  * initial empty start pointer.
  */
 static Relist*
-_renewemptythread(Relist *lp,    /* _relist to add to */
-    Reinst *ip,        /* instruction to add */
+_renewemptythread(Relist *lp,   /* _relist to add to */
+    Reinst *ip,                 /* instruction to add */
     int ms,
-    const char *sp)        /* pointers to subexpressions */
+    const char *sp)             /* pointers to subexpressions */
 {
     Relist *p;
 
@@ -295,9 +293,6 @@ _renewemptythread(Relist *lp,    /* _relist to add to */
 /*************
  * regcomp.c *
  *************/
-
-#define    TRUE    1
-#define    FALSE    0
 
 /*
  * Parser Information
@@ -371,7 +366,7 @@ operand(Parser *par, int t)
         i->r.rune = par->yyrune;
 
     pushand(par, i, i);
-    par->lastwasand = TRUE;
+    par->lastwasand = true;
 }
 
 static void
@@ -391,7 +386,7 @@ _operator(Parser *par, int t)
         pushator(par, t);
     par->lastwasand = 0;
     if (t==STAR || t==QUEST || t==PLUS || t==RBRA)
-        par->lastwasand = TRUE;    /* these look like operands */
+        par->lastwasand = true;    /* these look like operands */
 }
 
 static void
@@ -627,7 +622,7 @@ nextc(Parser *par, Rune *rp)
 {
     if (par->lexdone) {
         *rp = 0;
-        return 1;
+        return true;
     }
     par->exprp += chartorune(rp, par->exprp);
     if (*rp == '\\') {
@@ -655,11 +650,11 @@ nextc(Parser *par, Rune *rp)
             case 'l': *rp = CLS_l; break;
             case 'u': *rp = CLS_u; break;            
         }      
-        return 1;
+        return true;
     }
     if (*rp == 0)
-        par->lexdone = 1;
-    return 0;
+        par->lexdone = true;
+    return false;
 }
 
 static int
@@ -676,28 +671,17 @@ lex(Parser *par, int literal, int dot_type)
     }
 
     switch (par->yyrune) {
-    case 0:
-        return END;
-    case '*':
-        return STAR;
-    case '?':
-        return QUEST;
-    case '+':
-        return PLUS;
-    case '|':
-        return OR;
-    case '.':
-        return dot_type;
-    case '(':
-        return LBRA;
-    case ')':
-        return RBRA;
-    case '^':
-        return BOL;
-    case '$':
-        return EOL;
-    case '[':
-        return bldcclass(par);
+    case  0 : return END;
+    case '*': return STAR;
+    case '?': return QUEST;
+    case '+': return PLUS;
+    case '|': return OR;
+    case '.': return dot_type;
+    case '(': return LBRA;
+    case ')': return RBRA;
+    case '^': return BOL;
+    case '$': return EOL;
+    case '[': return bldcclass(par);
     }
     return RUNE;
 }
@@ -795,7 +779,7 @@ regcomp1(Parser *par, const char *s, int literal, int dot_type)
     Reprog *volatile pp;
 
     /* get memory for the program */
-    const int instcap = 5 + 6*strlen(s); /* equals original; seems excessive? */
+    const int instcap = 4 + strlen(s); /* originally: 5 + 6*strlen(s) */
     pp = (Reprog *)malloc(sizeof(Reprog) + instcap*sizeof(Reinst));
     if (pp == NULL) {
         regerror9("out of memory");
@@ -809,14 +793,14 @@ regcomp1(Parser *par, const char *s, int literal, int dot_type)
         goto out;
 
     /* go compile the sucker */
-    par->lexdone = 0;
+    par->lexdone = false;
     par->exprp = s;
     par->nclass = 0;
     par->nbra = 0;
     par->atorp = par->atorstack;
     par->andp = par->andstack;
     par->subidp = par->subidstack;
-    par->lastwasand = FALSE;
+    par->lastwasand = false;
     par->cursubid = 0;
 
     /* Start with a low priority operator to prime parser */
@@ -885,26 +869,26 @@ regcompnl9(const char *s)
 static int 
 runematch(Rune s, Rune r)
 {
-    int inv = 0;
+    int inv = false;
     switch (s) {
-        case CLS_A: inv = 1;
+        case CLS_A: inv = true;
         case CLS_a: return inv ^ isalpha(r);
-        case CLS_W: inv = 1;
+        case CLS_W: inv = true;
         case CLS_w: return inv ^ (isalnum(r) || r == '_');
-        case CLS_S: inv = 1;
+        case CLS_S: inv = true;
         case CLS_s: return inv ^ isspace(r);
-        case CLS_D: inv = 1;
+        case CLS_D: inv = true;
         case CLS_d: return inv ^ isdigit(r);
-        case CLS_X: inv = 1;
+        case CLS_X: inv = true;
         case CLS_x: return inv ^ isxdigit(r);
-        case CLS_C: inv = 1;
+        case CLS_C: inv = true;
         case CLS_c: return inv ^ iscntrl(r);
-        case CLS_P: inv = 1;
+        case CLS_P: inv = true;
         case CLS_p: return inv ^ ispunct(r);
         case CLS_l: return islower(r);
         case CLS_u: return isupper(r);
     }
-    return s == r;    
+    return s == r;
 }
 
 /*
@@ -934,7 +918,7 @@ regexec1(const Reprog *progp,    /* program to run */
     int match;
     const char *p;
 
-    match = 0;
+    match = false;
     checkstart = j->starttype;
     if (mp)
         for (i=0; i<ms; i++) {
@@ -976,13 +960,13 @@ regexec1(const Reprog *progp,    /* program to run */
         nl->inst = NULL;
 
         /* Add first instruction to current list */
-        if (match == 0)
+        if (!match)
             _renewemptythread(tl, progp->startinst, ms, s);
 
         /* Execute machine until current list is empty */
         for (tlp=tl; tlp->inst; tlp++) {    /* assignment = */
             for (inst = tlp->inst; ; inst = inst->l.next) {
-                int ok = 0;
+                int ok = false;
 
                 switch (inst->type) {
                 case RUNE:    /* regular character */
@@ -998,7 +982,7 @@ regexec1(const Reprog *progp,    /* program to run */
                     ok = (r != '\n');
                     break;
                 case ANYNL:
-                    ok = 1;
+                    ok = true;
                     break;
                 case BOL:
                     if (s == bol || *(s-1) == '\n')
@@ -1014,7 +998,7 @@ regexec1(const Reprog *progp,    /* program to run */
                         continue;
                     break;
                 case NCCLASS:
-                    ok = 1; /* fallthrough */
+                    ok = true; /* fallthrough */
                 case CCLASS:
                     ep = inst->r.classp->end;
                     for (rp = inst->r.classp->spans; rp < ep; rp += 2)
@@ -1029,7 +1013,7 @@ regexec1(const Reprog *progp,    /* program to run */
                     /* efficiency: advance and re-evaluate */
                     continue;
                 case END:    /* Match! */
-                    match = 1;
+                    match = true;
                     tlp->se.m[0].ep = s;
                     if (mp != NULL)
                         _renewmatch(mp, ms, &tlp->se);
@@ -1058,25 +1042,20 @@ regexec2(const Reprog *progp,    /* program to run */
 )
 {
     int rv;
-    Relist *relist0, *relist1;
+    Relist *relists;
 
     /* mark space */
-    relist0 = (Relist *)malloc(BIGLISTSIZE*sizeof(Relist));
-    if (relist0 == NULL)
+    relists = (Relist *)malloc(2 * BIGLISTSIZE*sizeof(Relist));
+    if (relists == NULL)
         return -1;
-    relist1 = (Relist *)malloc(BIGLISTSIZE*sizeof(Relist));
-    if (relist1 == NULL) {
-        free(relist1);
-        return -1;
-    }
-    j->relist[0] = relist0;
-    j->relist[1] = relist1;
-    j->reliste[0] = relist0 + BIGLISTSIZE - 2;
-    j->reliste[1] = relist1 + BIGLISTSIZE - 2;
+
+    j->relist[0] = relists;
+    j->relist[1] = relists + BIGLISTSIZE;
+    j->reliste[0] = relists + BIGLISTSIZE - 2;
+    j->reliste[1] = relists + 2*BIGLISTSIZE - 2;
 
     rv = regexec1(progp, bol, mp, ms, j);
-    free(relist0);
-    free(relist1);
+    free(relists);
     return rv;
 }
 
@@ -1144,16 +1123,8 @@ regsub9(const char *sp,    /* source string */
     while (*sp != '\0') {
         if (*sp == '\\') {
             switch (*++sp) {
-            case '0':
-            case '1':
-            case '2':
-            case '3':
-            case '4':
-            case '5':
-            case '6':
-            case '7':
-            case '8':
-            case '9':
+            case '0': case '1': case '2': case '3': case '4':
+            case '5': case '6': case '7': case '8': case '9':
                 i = *sp-'0';
                 if (mp[i].sp != NULL && mp!=NULL && ms>i)
                     for (ssp = mp[i].sp;
