@@ -1,14 +1,14 @@
-CC=			gcc
-CFLAGS=		-g -Wall -O2 -fomit-frame-pointer
-OBJS=		regexp9.o test.o
-DFLAGS=
-INCLUDES=
-LIBS=		
+CC =		gcc -std=c99
+CFLAGS =	-pedantic -Wall -O2
+OBJS =		regexp9.o test.o
+DFLAGS =
+INCLUDES =
+LIBS =
 
 .SUFFIXES:.c .o
 
 .c.o:
-		$(CC) -c $(INCLUDES) $(CFLAGS) $(DFLAGS) $< -o $@
+		$(CC) -c $(CFLAGS) $(INCLUDES) $(DFLAGS) $< -o $@
 
 all:test
 

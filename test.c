@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
         return 0;
     }
     p = regcomp9(argv[1]);
-    buf = calloc(BUF_SIZE, 1);
+    buf = (char *)calloc(BUF_SIZE, 1);
     while (fgets(buf, BUF_SIZE - 1, stdin)) {
         ++l;
         for (q = buf; *q; ++q);

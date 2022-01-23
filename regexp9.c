@@ -79,7 +79,7 @@ struct Reinst
 struct Reprog
 {
     Reinst  *startinst;     /* start pc */
-    Reclass class[16];      /* .data */
+    Reclass _class[16];     /* .data */
     Reinst  firstinst[5];   /* .text */
 };
 
@@ -103,7 +103,7 @@ struct    Resublist
 
 /* max character classes per program */
 extern Reprog   RePrOg;
-#define NCLASS  (sizeof(RePrOg.class)/sizeof(Reclass))
+#define NCLASS  (sizeof(RePrOg._class)/sizeof(Reclass))
 
 /* max rune ranges per character class */
 #define NCCRUNE (sizeof(Reclass)/sizeof(Rune))
@@ -328,7 +328,7 @@ typedef struct Parser
 } Parser;
 
 /* predeclared crap */
-static void operator(Parser *par, int type);
+static void _operator(Parser *par, int type);
 static void pushand(Parser *par, Reinst *first, Reinst *last);
 static void pushator(Parser *par, int type);
 static void evaluntil(Parser *par, int type);
@@ -358,7 +358,7 @@ operand(Parser *par, int t)
     Reinst *i;
 
     if (par->lastwasand)
-        operator(par, CAT);    /* catenate is implicit */
+        _operator(par, CAT);    /* catenate is implicit */
     i = newinst(par, t);
 
     if (t == CCLASS || t == NCCLASS)
@@ -371,7 +371,7 @@ operand(Parser *par, int t)
 }
 
 static void
-operator(Parser *par, int t)
+_operator(Parser *par, int t)
 {
     if (t==RBRA && --par->nbra<0)
         rcerror(par, "unmatched right paren");
@@ -380,7 +380,7 @@ operator(Parser *par, int t)
             rcerror(par, "too many subexpressions");
         par->nbra++;
         if (par->lastwasand)
-            operator(par, CAT);
+            _operator(par, CAT);
     } else
         evaluntil(par, t);
     if (t != RBRA)
@@ -767,13 +767,13 @@ regcomp1(Parser *par, const char *s, int literal, int dot_type)
     Reprog *volatile pp;
 
     /* get memory for the program */
-    pp = malloc(sizeof(Reprog) + 6*sizeof(Reinst)*strlen(s));
+    pp = (Reprog *)malloc(sizeof(Reprog) + 6*sizeof(Reinst)*strlen(s));
     if (pp == NULL) {
         regerror9("out of memory");
         return NULL;
     }
     par->freep = pp->firstinst;
-    par->classp = pp->class;
+    par->classp = pp->_class;
     par->errors = 0;
 
     if (setjmp(par->regkaboom))
@@ -794,7 +794,7 @@ regcomp1(Parser *par, const char *s, int literal, int dot_type)
     pushator(par, START-1);
     while ((token = lex(par, literal, dot_type)) != END) {
         if ((token & 0360) == OPERATOR)
-            operator(par, token);
+            _operator(par, token);
         else
             operand(par, token);
     }
@@ -828,21 +828,21 @@ out:
     return pp;
 }
 
-extern    Reprog*
+extern Reprog*
 regcomp9(const char *s)
 {
     Parser par;
     return regcomp1(&par, s, 0, ANY);
 }
 
-extern    Reprog*
+extern Reprog*
 regcomplit9(const char *s)
 {
     Parser par;
     return regcomp1(&par, s, 1, ANY);
 }
 
-extern    Reprog*
+extern Reprog*
 regcompnl9(const char *s)
 {
     Parser par;
@@ -1012,10 +1012,10 @@ regexec2(const Reprog *progp,    /* program to run */
     Relist *relist0, *relist1;
 
     /* mark space */
-    relist0 = malloc(BIGLISTSIZE*sizeof(Relist));
+    relist0 = (Relist *)malloc(BIGLISTSIZE*sizeof(Relist));
     if (relist0 == NULL)
         return -1;
-    relist1 = malloc(BIGLISTSIZE*sizeof(Relist));
+    relist1 = (Relist *)malloc(BIGLISTSIZE*sizeof(Relist));
     if (relist1 == NULL) {
         free(relist1);
         return -1;
@@ -1081,7 +1081,7 @@ regexec9(const Reprog *progp,    /* program to run */
  ************/
 
 /* substitute into one string using the matches from the last regexec() */
-extern    void
+extern void
 regsub9(const char *sp,    /* source string */
     char *dp,    /* destination string */
     int dlen,
@@ -1147,7 +1147,7 @@ regsub9(const char *sp,    /* source string */
 
 #include <stdio.h>
 
-void
+extern void
 regerror9(const char *s)
 {
     fprintf(stderr, "regerror: %s\n", s);
