@@ -34,7 +34,6 @@
 
 #include <stdlib.h>
 #include <setjmp.h>
-#include <unistd.h>
 #include "regexp9.h"
 
 /*********
@@ -163,9 +162,6 @@ struct    Reljunk
     Rune*    rstarts;
     Rune*    reol;
 };
-
-#define nil 0
-#define exits(x) exit(x && *x ? 1 : 0)
 
 /****************************************************
  * Routines from rune.c, runestrchr.c and utfrune.c *
@@ -318,7 +314,7 @@ _renewmatch(Resub *mp, int ms, Resublist *sp)
         for(i=0; i<ms && i<NSUBEXP; i++)
             mp[i] = sp->m[i];
         for(; i<ms; i++)
-            mp[i].s.sp = mp[i].e.ep = 0;
+            mp[i].s.sp = mp[i].e.ep = NULL;
     }
 }
 
@@ -351,7 +347,7 @@ _renewthread(Relist *lp,    /* _relist to add to */
         p->se = *sep;
     else
         p->se.m[0] = sep->m[0];
-    (++p)->inst = 0;
+    (++p)->inst = NULL;
     return p;
 }
 
@@ -381,7 +377,7 @@ _renewemptythread(Relist *lp,    /* _relist to add to */
     if(ms > 1)
         memset(&p->se, 0, sizeof(p->se));
     p->se.m[0].s.sp = sp;
-    (++p)->inst = 0;
+    (++p)->inst = NULL;
     return p;
 }
 
@@ -443,8 +439,8 @@ static    Reinst*
 newinst(int t)
 {
     freep->type = t;
-    freep->u2.left = 0;
-    freep->u1.right = 0;
+    freep->u2.left = NULL;
+    freep->u1.right = NULL;
     return freep++;
 }
 
@@ -864,7 +860,7 @@ regcomp1(char *s, int literal, int dot_type)
 
     /* get memory for the program */
     pp = malloc(sizeof(Reprog) + 6*sizeof(Reinst)*strlen(s));
-    if(pp == 0){
+    if(pp == NULL){
         regerror9("out of memory");
         return 0;
     }
@@ -919,7 +915,7 @@ regcomp1(char *s, int literal, int dot_type)
 out:
     if(errors){
         free(pp);
-        pp = 0;
+        pp = NULL;
     }
     return pp;
 }
@@ -977,11 +973,11 @@ regexec1(const Reprog *progp,    /* program to run */
     checkstart = j->starttype;
     if(mp)
         for(i=0; i<ms; i++) {
-            mp[i].s.sp = 0;
-            mp[i].e.ep = 0;
+            mp[i].s.sp = NULL;
+            mp[i].e.ep = NULL;
         }
-    j->relist[0][0].inst = 0;
-    j->relist[1][0].inst = 0;
+    j->relist[0][0].inst = NULL;
+    j->relist[1][0].inst = NULL;
 
     /* Execute machine once for each character, including terminal NUL */
     s = j->starts;
@@ -991,7 +987,7 @@ regexec1(const Reprog *progp,    /* program to run */
             switch(j->starttype) {
             case RUNE:
                 p = utfrune(s, j->startchar);
-                if(p == 0 || s == j->eol)
+                if(p == NULL || s == j->eol)
                     return match;
                 s = p;
                 break;
@@ -999,7 +995,7 @@ regexec1(const Reprog *progp,    /* program to run */
                 if(s == bol)
                     break;
                 p = utfrune(s, '\n');
-                if(p == 0 || s == j->eol)
+                if(p == NULL || s == j->eol)
                     return match;
                 s = p+1;
                 break;
@@ -1016,7 +1012,7 @@ regexec1(const Reprog *progp,    /* program to run */
         tle = j->reliste[flag];
         nl = j->relist[flag^=1];
         nle = j->reliste[flag];
-        nl->inst = 0;
+        nl->inst = NULL;
 
         /* Add first instruction to current list */
         if(match == 0)
@@ -1082,7 +1078,7 @@ regexec1(const Reprog *progp,    /* program to run */
                 case END:    /* Match! */
                     match = 1;
                     tlp->se.m[0].e.ep = s;
-                    if(mp != 0)
+                    if(mp != NULL)
                         _renewmatch(mp, ms, &tlp->se);
                     break;
                 }
@@ -1110,10 +1106,10 @@ regexec2(const Reprog *progp,    /* program to run */
 
     /* mark space */
     relist0 = malloc(BIGLISTSIZE*sizeof(Relist));
-    if(relist0 == nil)
+    if(relist0 == NULL)
         return -1;
     relist1 = malloc(BIGLISTSIZE*sizeof(Relist));
-    if(relist1 == nil){
+    if(relist1 == NULL){
         free(relist1);
         return -1;
     }
@@ -1142,7 +1138,7 @@ regexec9(const Reprog *progp,    /* program to run */
       *  use user-specified starting/ending location if specified
      */
     j.starts = bol;
-    j.eol = 0;
+    j.eol = NULL;
     if(mp && ms>0){
         if(mp->s.sp)
             j.starts = mp->s.sp;
@@ -1203,7 +1199,7 @@ regsub9(char *sp,    /* source string */
             case '8':
             case '9':
                 i = *sp-'0';
-                if(mp[i].s.sp != 0 && mp!=0 && ms>i)
+                if(mp[i].s.sp != NULL && mp!=NULL && ms>i)
                     for(ssp = mp[i].s.sp;
                          ssp < mp[i].e.ep;
                          ssp++)
@@ -1223,8 +1219,8 @@ regsub9(char *sp,    /* source string */
                 break;
             }
         }else if(*sp == '&'){                
-            if(mp[0].s.sp != 0 && mp!=0 && ms>0)
-            if(mp[0].s.sp != 0)
+            if(mp[0].s.sp != NULL && mp!=NULL && ms>0)
+            if(mp[0].s.sp != NULL)
                 for(ssp = mp[0].s.sp;
                      ssp < mp[0].e.ep; ssp++)
                     if(dp < ep)
@@ -1242,14 +1238,10 @@ regsub9(char *sp,    /* source string */
  * regerror.c *
  **************/
 
+#include <stdio.h>
+
 void
 regerror9(char *s)
 {
-    char buf[132];
-
-    strcpy(buf, "regerror: ");
-    strcat(buf, s);
-    strcat(buf, "\n");
-    write(2, buf, strlen(buf));
-    exits("regerr");
+    fprintf(stderr, "regerror: %s\n", s);
 }
