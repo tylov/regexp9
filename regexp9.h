@@ -44,7 +44,6 @@ struct Resub {
 };
 
 extern Reprog*  regcomp9(const char* exp);
-extern Reprog*  regcomplit9(const char* exp);
 extern Reprog*  regcompnl9(const char* exp);
 extern int      regexec9(const Reprog* prog, const char* string, Resub* match, int msize);
 extern void     regsub9(const char* source, char* dest, int, Resub* match, int msize);

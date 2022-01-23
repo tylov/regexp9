@@ -658,12 +658,12 @@ nextc(Parser *par, Rune *rp)
 }
 
 static int
-lex(Parser *par, int literal, int dot_type)
+lex(Parser *par, int dot_type)
 {
     int quoted;
 
     quoted = nextc(par, &par->yyrune);
-    if (literal || quoted) {
+    if (quoted) {
         if (par->yyrune == 'b')
             return WORDBND;
         if (par->yyrune != 0)
@@ -773,7 +773,7 @@ bldcclass(Parser *par)
 }
 
 static Reprog*
-regcomp1(Parser *par, const char *s, int literal, int dot_type)
+regcomp1(Parser *par, const char *s, int dot_type)
 {
     int token;
     Reprog *volatile pp;
@@ -805,7 +805,7 @@ regcomp1(Parser *par, const char *s, int literal, int dot_type)
 
     /* Start with a low priority operator to prime parser */
     pushator(par, START-1);
-    while ((token = lex(par, literal, dot_type)) != END) {
+    while ((token = lex(par, dot_type)) != END) {
         if ((token & 0360) == OPERATOR)
             _operator(par, token);
         else
@@ -845,21 +845,14 @@ extern Reprog*
 regcomp9(const char *s)
 {
     Parser par;
-    return regcomp1(&par, s, 0, ANY);
-}
-
-extern Reprog*
-regcomplit9(const char *s)
-{
-    Parser par;
-    return regcomp1(&par, s, 1, ANY);
+    return regcomp1(&par, s, ANY);
 }
 
 extern Reprog*
 regcompnl9(const char *s)
 {
     Parser par;
-    return regcomp1(&par, s, 0, ANYNL);
+    return regcomp1(&par, s, ANYNL);
 }
 
 /*************
