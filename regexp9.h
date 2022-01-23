@@ -35,9 +35,6 @@ extern Reprog   *regcompnl9(char*);
 extern int      regexec9(const Reprog*, char*, Resub*, int);
 extern void     regsub9(char*, char*, int, Resub*, int);
 
-extern int      rregexec9(const Reprog*, Rune*, Resub*, int);
-extern void     rregsub9(Rune*, Rune*, int, Resub*, int);
-
 #if defined(__cplusplus)
 }
 #endif
