@@ -151,8 +151,9 @@ struct Relist
     Reinst*     inst;       /* Reinstruction of the thread */
     Resublist   se;         /* matched subexpressions in this thread */
 };
+
 typedef struct Reljunk  Reljunk;
-struct    Reljunk
+struct Reljunk
 {
     Relist*     relist[2];
     Relist*     reliste[2];
@@ -160,8 +161,6 @@ struct    Reljunk
     Rune        startchar;
     const char* starts;
     const char* eol;
-    Rune*       rstarts;
-    Rune*       reol;
 };
 
 /****************************************************
