@@ -614,6 +614,13 @@ nextc(Parser *par, Rune *rp)
     par->exprp += chartorune(rp, par->exprp);
     if (*rp == '\\') {
         par->exprp += chartorune(rp, par->exprp);
+        switch (*rp) {
+            case 't': *rp = '\t'; break;
+            case 'n': *rp = '\n'; break;
+            case 'r': *rp = '\r'; break;
+            case 'v': *rp = '\v'; break;
+            case 'f': *rp = '\f'; break;  
+        }      
         return 1;
     }
     if (*rp == 0)
