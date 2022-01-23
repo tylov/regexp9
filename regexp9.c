@@ -28,6 +28,7 @@ THE SOFTWARE.
 #include <stdint.h>
 #include <setjmp.h>
 #include <string.h>
+#include <ctype.h>
 #include "regexp9.h"
 
 /*************
@@ -117,7 +118,24 @@ struct Resublist
 #define EOL         0264    /* End of line, $ */
 #define CCLASS      0265    /* Character class, [] */
 #define NCCLASS     0266    /* Negated character class, [] */
+#define WORDBND     0276    /* Word boundary non-consuming meta char */
 #define END         0277    /* Terminate: match found */
+#define CLS_a       0220
+#define CLS_A       0221
+#define CLS_w       0222
+#define CLS_W       0223
+#define CLS_s       0224
+#define CLS_S       0225
+#define CLS_d       0226
+#define CLS_D       0227
+#define CLS_x       0230
+#define CLS_X       0231
+#define CLS_c       0232
+#define CLS_C       0233
+#define CLS_p       0234
+#define CLS_P       0235
+#define CLS_l       0236
+#define CLS_u       0237
 
 /*
  *  regexec execution lists
@@ -619,7 +637,23 @@ nextc(Parser *par, Rune *rp)
             case 'n': *rp = '\n'; break;
             case 'r': *rp = '\r'; break;
             case 'v': *rp = '\v'; break;
-            case 'f': *rp = '\f'; break;  
+            case 'f': *rp = '\f'; break;
+            case 'a': *rp = CLS_a; break;
+            case 'A': *rp = CLS_A; break;
+            case 'w': *rp = CLS_w; break;
+            case 'W': *rp = CLS_W; break;
+            case 's': *rp = CLS_s; break;
+            case 'S': *rp = CLS_S; break;
+            case 'd': *rp = CLS_d; break;
+            case 'D': *rp = CLS_D; break;
+            case 'x': *rp = CLS_x; break;
+            case 'X': *rp = CLS_X; break;
+            case 'c': *rp = CLS_c; break;
+            case 'C': *rp = CLS_C; break;
+            case 'p': *rp = CLS_p; break;
+            case 'P': *rp = CLS_P; break;
+            case 'l': *rp = CLS_l; break;
+            case 'u': *rp = CLS_u; break;            
         }      
         return 1;
     }
@@ -635,9 +669,10 @@ lex(Parser *par, int literal, int dot_type)
 
     quoted = nextc(par, &par->yyrune);
     if (literal || quoted) {
-        if (par->yyrune == 0)
-            return END;
-        return RUNE;
+        if (par->yyrune == 'b')
+            return WORDBND;
+        if (par->yyrune != 0)
+            return RUNE;
     }
 
     switch (par->yyrune) {
@@ -847,6 +882,31 @@ regcompnl9(const char *s)
  * regexec.c *
  *************/
 
+static int 
+runematch(Rune s, Rune r)
+{
+    int inv = 0;
+    switch (s) {
+        case CLS_A: inv = 1;
+        case CLS_a: return inv ^ isalpha(r);
+        case CLS_W: inv = 1;
+        case CLS_w: return inv ^ (isalnum(r) || r == '_');
+        case CLS_S: inv = 1;
+        case CLS_s: return inv ^ isspace(r);
+        case CLS_D: inv = 1;
+        case CLS_d: return inv ^ isdigit(r);
+        case CLS_X: inv = 1;
+        case CLS_x: return inv ^ isxdigit(r);
+        case CLS_C: inv = 1;
+        case CLS_c: return inv ^ iscntrl(r);
+        case CLS_P: inv = 1;
+        case CLS_p: return inv ^ ispunct(r);
+        case CLS_l: return islower(r);
+        case CLS_u: return isupper(r);
+    }
+    return s == r;    
+}
+
 /*
  *  return    0 if no match
  *        >0 if a match
@@ -922,12 +982,11 @@ regexec1(const Reprog *progp,    /* program to run */
         /* Execute machine until current list is empty */
         for (tlp=tl; tlp->inst; tlp++) {    /* assignment = */
             for (inst = tlp->inst; ; inst = inst->l.next) {
+                int ok = 0;
+
                 switch (inst->type) {
                 case RUNE:    /* regular character */
-                    if (inst->r.rune == r) {
-                        if (_renewthread(nl, inst->l.next, ms, &tlp->se)==nle)
-                            return -1;
-                    }
+                    ok = runematch(inst->r.rune, r);
                     break;
                 case LBRA:
                     tlp->se.m[inst->r.subid].sp = s;
@@ -936,13 +995,10 @@ regexec1(const Reprog *progp,    /* program to run */
                     tlp->se.m[inst->r.subid].ep = s;
                     continue;
                 case ANY:
-                    if (r != '\n')
-                        if (_renewthread(nl, inst->l.next, ms, &tlp->se)==nle)
-                            return -1;
+                    ok = (r != '\n');
                     break;
                 case ANYNL:
-                    if (_renewthread(nl, inst->l.next, ms, &tlp->se)==nle)
-                            return -1;
+                    ok = 1;
                     break;
                 case BOL:
                     if (s == bol || *(s-1) == '\n')
@@ -952,23 +1008,19 @@ regexec1(const Reprog *progp,    /* program to run */
                     if (s == j->eol || r == 0 || r == '\n')
                         continue;
                     break;
+                case WORDBND:
+                    if (s == bol || s == j->eol || ((isalnum(s[-1]) || s[-1] == '_')
+                                                  ^ (isalnum(s[ 0]) || s[ 0] == '_')))
+                        continue;
+                    break;
+                case NCCLASS:
+                    ok = 1; /* fallthrough */
                 case CCLASS:
                     ep = inst->r.classp->end;
                     for (rp = inst->r.classp->spans; rp < ep; rp += 2)
-                        if (r >= rp[0] && r <= rp[1]) {
-                            if (_renewthread(nl, inst->l.next, ms, &tlp->se)==nle)
-                                return -1;
+                        if ((r >= rp[0] && r <= rp[1]) || (rp[0] == rp[1] && runematch(rp[0], r)))
                             break;
-                        }
-                    break;
-                case NCCLASS:
-                    ep = inst->r.classp->end;
-                    for (rp = inst->r.classp->spans; rp < ep; rp += 2)
-                        if (r >= rp[0] && r <= rp[1])
-                            break;
-                    if (rp == ep)
-                        if (_renewthread(nl, inst->l.next, ms, &tlp->se)==nle)
-                            return -1;
+                    ok ^= (rp < ep);
                     break;
                 case OR:
                     /* evaluate right choice later */
@@ -983,6 +1035,9 @@ regexec1(const Reprog *progp,    /* program to run */
                         _renewmatch(mp, ms, &tlp->se);
                     break;
                 }
+
+                if (ok && _renewthread(nl, inst->l.next, ms, &tlp->se) == nle)
+                    return -1;
                 break;
             }
         }
