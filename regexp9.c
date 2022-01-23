@@ -69,15 +69,15 @@ struct Reclass{
 struct Reinst{
     int    type;
     union    {
-        Reclass    *cp;        /* class pointer */
-        Rune    r;        /* character */
+        Reclass    *classp;        /* class pointer */
+        Rune    rune;        /* character */
         int    subid;        /* sub-expression id for RBRA and LBRA */
         Reinst    *right;        /* right child of OR */
-    }u1;
+    }r;
     union {    /* regexp relies on these two being in the same union */
         Reinst *left;        /* left child of OR */
         Reinst *next;        /* next instruction for CAT & LBRA */
-    }u2;
+    }l;
 };
 
 /*
@@ -439,8 +439,8 @@ static    Reinst*
 newinst(int t)
 {
     freep->type = t;
-    freep->u2.left = NULL;
-    freep->u1.right = NULL;
+    freep->l.left = NULL;
+    freep->r.right = NULL;
     return freep++;
 }
 
@@ -454,9 +454,9 @@ operand(int t)
     i = newinst(t);
 
     if(t == CCLASS || t == NCCLASS)
-        i->u1.cp = yyclassp;
+        i->r.classp = yyclassp;
     if(t == RUNE)
-        i->u1.r = yyrune;
+        i->r.rune = yyrune;
 
     pushand(i, i);
     lastwasand = TRUE;
@@ -558,51 +558,51 @@ evaluntil(int pri)
         case LBRA:        /* must have been RBRA */
             op1 = popand('(');
             inst2 = newinst(RBRA);
-            inst2->u1.subid = *subidp;
-            op1->last->u2.next = inst2;
+            inst2->r.subid = *subidp;
+            op1->last->l.next = inst2;
             inst1 = newinst(LBRA);
-            inst1->u1.subid = *subidp;
-            inst1->u2.next = op1->first;
+            inst1->r.subid = *subidp;
+            inst1->l.next = op1->first;
             pushand(inst1, inst2);
             return;
         case OR:
             op2 = popand('|');
             op1 = popand('|');
             inst2 = newinst(NOP);
-            op2->last->u2.next = inst2;
-            op1->last->u2.next = inst2;
+            op2->last->l.next = inst2;
+            op1->last->l.next = inst2;
             inst1 = newinst(OR);
-            inst1->u1.right = op1->first;
-            inst1->u2.left = op2->first;
+            inst1->r.right = op1->first;
+            inst1->l.left = op2->first;
             pushand(inst1, inst2);
             break;
         case CAT:
             op2 = popand(0);
             op1 = popand(0);
-            op1->last->u2.next = op2->first;
+            op1->last->l.next = op2->first;
             pushand(op1->first, op2->last);
             break;
         case STAR:
             op2 = popand('*');
             inst1 = newinst(OR);
-            op2->last->u2.next = inst1;
-            inst1->u1.right = op2->first;
+            op2->last->l.next = inst1;
+            inst1->r.right = op2->first;
             pushand(inst1, inst1);
             break;
         case PLUS:
             op2 = popand('+');
             inst1 = newinst(OR);
-            op2->last->u2.next = inst1;
-            inst1->u1.right = op2->first;
+            op2->last->l.next = inst1;
+            inst1->r.right = op2->first;
             pushand(op2->first, inst1);
             break;
         case QUEST:
             op2 = popand('?');
             inst1 = newinst(OR);
             inst2 = newinst(NOP);
-            inst1->u2.left = inst2;
-            inst1->u1.right = op2->first;
-            op2->last->u2.next = inst2;
+            inst1->l.left = inst2;
+            inst1->r.right = op2->first;
+            op2->last->l.next = inst2;
             pushand(inst1, inst2);
             break;
         }
@@ -622,10 +622,10 @@ optimize(Reprog *pp)
      *  get rid of NOOP chains
      */
     for(inst=pp->firstinst; inst->type!=END; inst++){
-        target = inst->u2.next;
+        target = inst->l.next;
         while(target->type == NOP)
-            target = target->u2.next;
-        inst->u2.next = target;
+            target = target->l.next;
+        inst->l.next = target;
     }
 
     /*
@@ -645,16 +645,16 @@ optimize(Reprog *pp)
         case STAR:
         case PLUS:
         case QUEST:
-            inst->u1.right = (void*)((char*)inst->u1.right + diff);
+            inst->r.right = (void*)((char*)inst->r.right + diff);
             break;
         case CCLASS:
         case NCCLASS:
-            inst->u1.right = (void*)((char*)inst->u1.right + diff);
-            cl = inst->u1.cp;
+            inst->r.right = (void*)((char*)inst->r.right + diff);
+            cl = inst->r.classp;
             cl->end = (void*)((char*)cl->end + diff);
             break;
         }
-        inst->u2.left = (void*)((char*)inst->u2.left + diff);
+        inst->l.left = (void*)((char*)inst->l.left + diff);
     }
     npp->startinst = (void*)((char*)npp->startinst + diff);
     return npp;
@@ -683,14 +683,14 @@ dump(Reprog *pp)
     l = pp->firstinst;
     do{
         print("%d:\t0%o\t%d\t%d", l-pp->firstinst, l->type,
-            l->u2.left-pp->firstinst, l->u1.right-pp->firstinst);
+            l->l.left-pp->firstinst, l->r.right-pp->firstinst);
         if(l->type == RUNE)
-            print("\t%C\n", l->u1.r);
+            print("\t%C\n", l->r.rune);
         else if(l->type == CCLASS || l->type == NCCLASS){
             print("\t[");
             if(l->type == NCCLASS)
                 print("^");
-            for(p = l->u1.cp->spans; p < l->u1.cp->end; p += 2)
+            for(p = l->r.classp->spans; p < l->r.classp->end; p += 2)
                 if(p[0] == p[1])
                     print("%C", p[0]);
                 else
@@ -1020,27 +1020,27 @@ regexec1(const Reprog *progp,    /* program to run */
 
         /* Execute machine until current list is empty */
         for(tlp=tl; tlp->inst; tlp++){    /* assignment = */
-            for(inst = tlp->inst; ; inst = inst->u2.next){
+            for(inst = tlp->inst; ; inst = inst->l.next){
                 switch(inst->type){
                 case RUNE:    /* regular character */
-                    if(inst->u1.r == r){
-                        if(_renewthread(nl, inst->u2.next, ms, &tlp->se)==nle)
+                    if(inst->r.rune == r){
+                        if(_renewthread(nl, inst->l.next, ms, &tlp->se)==nle)
                             return -1;
                     }
                     break;
                 case LBRA:
-                    tlp->se.m[inst->u1.subid].s.sp = s;
+                    tlp->se.m[inst->r.subid].s.sp = s;
                     continue;
                 case RBRA:
-                    tlp->se.m[inst->u1.subid].e.ep = s;
+                    tlp->se.m[inst->r.subid].e.ep = s;
                     continue;
                 case ANY:
                     if(r != '\n')
-                        if(_renewthread(nl, inst->u2.next, ms, &tlp->se)==nle)
+                        if(_renewthread(nl, inst->l.next, ms, &tlp->se)==nle)
                             return -1;
                     break;
                 case ANYNL:
-                    if(_renewthread(nl, inst->u2.next, ms, &tlp->se)==nle)
+                    if(_renewthread(nl, inst->l.next, ms, &tlp->se)==nle)
                             return -1;
                     break;
                 case BOL:
@@ -1052,26 +1052,26 @@ regexec1(const Reprog *progp,    /* program to run */
                         continue;
                     break;
                 case CCLASS:
-                    ep = inst->u1.cp->end;
-                    for(rp = inst->u1.cp->spans; rp < ep; rp += 2)
+                    ep = inst->r.classp->end;
+                    for(rp = inst->r.classp->spans; rp < ep; rp += 2)
                         if(r >= rp[0] && r <= rp[1]){
-                            if(_renewthread(nl, inst->u2.next, ms, &tlp->se)==nle)
+                            if(_renewthread(nl, inst->l.next, ms, &tlp->se)==nle)
                                 return -1;
                             break;
                         }
                     break;
                 case NCCLASS:
-                    ep = inst->u1.cp->end;
-                    for(rp = inst->u1.cp->spans; rp < ep; rp += 2)
+                    ep = inst->r.classp->end;
+                    for(rp = inst->r.classp->spans; rp < ep; rp += 2)
                         if(r >= rp[0] && r <= rp[1])
                             break;
                     if(rp == ep)
-                        if(_renewthread(nl, inst->u2.next, ms, &tlp->se)==nle)
+                        if(_renewthread(nl, inst->l.next, ms, &tlp->se)==nle)
                             return -1;
                     break;
                 case OR:
                     /* evaluate right choice later */
-                    if(_renewthread(tlp, inst->u1.right, ms, &tlp->se) == tle)
+                    if(_renewthread(tlp, inst->r.right, ms, &tlp->se) == tle)
                         return -1;
                     /* efficiency: advance and re-evaluate */
                     continue;
@@ -1147,9 +1147,9 @@ regexec9(const Reprog *progp,    /* program to run */
     }
     j.starttype = 0;
     j.startchar = 0;
-    if(progp->startinst->type == RUNE && progp->startinst->u1.r < Runeself) {
+    if(progp->startinst->type == RUNE && progp->startinst->r.rune < Runeself) {
         j.starttype = RUNE;
-        j.startchar = progp->startinst->u1.r;
+        j.startchar = progp->startinst->r.rune;
     }
     if(progp->startinst->type == BOL)
         j.starttype = BOL;
