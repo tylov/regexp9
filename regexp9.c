@@ -98,44 +98,39 @@ typedef struct Resublist
 /*
  * Actions and Tokens (Reinst types)
  *
- *    02xx are operators, value == precedence
- *    03xx are tokens, i.e. operands for operators
+ *  0x80-0x8F are operators, value == precedence
+ *  0xB0-0xBF are tokens, i.e. operands for operators
  */
-#define RUNE        0177
-#define OPERATOR    0200    /* Bitmask of all operators */
-#define START       0200    /* Start, used for marker on stack */
-#define RBRA        0201    /* Right bracket, ) */
-#define LBRA        0202    /* Left bracket, ( */
-#define OR          0203    /* Alternation, | */
-#define CAT         0204    /* Concatentation, implicit operator */
-#define STAR        0205    /* Closure, * */
-#define PLUS        0206    /* a+ == aa* */
-#define QUEST       0207    /* a? == a|nothing, i.e. 0 or 1 a's */
-#define ANY         0260    /* Any character except newline, . */
-#define ANYNL       0261    /* Any character including newline, . */
-#define NOP         0262    /* No operation, internal use only */
-#define BOL         0263    /* Beginning of line, ^ */
-#define EOL         0264    /* End of line, $ */
-#define CCLASS      0265    /* Character class, [] */
-#define NCCLASS     0266    /* Negated character class, [] */
-#define WORDBND     0276    /* Word boundary non-consuming meta char */
-#define END         0277    /* Terminate: match found */
-#define CLS_a       0220
-#define CLS_A       0221
-#define CLS_w       0222
-#define CLS_W       0223
-#define CLS_s       0224
-#define CLS_S       0225
-#define CLS_d       0226
-#define CLS_D       0227
-#define CLS_x       0230
-#define CLS_X       0231
-#define CLS_c       0232
-#define CLS_C       0233
-#define CLS_p       0234
-#define CLS_P       0235
-#define CLS_l       0236
-#define CLS_u       0237
+enum {
+    RUNE        = 0x7F,
+    OPERATOR    = 0x80,  /* Bitmask of all operators */
+    START       = 0x80,  /* Start, used for marker on stack */
+    RBRA        = 0x81,  /* Right bracket, ) */
+    LBRA        = 0x82,  /* Left bracket, ( */
+    OR          = 0x83,  /* Alternation, | */
+    CAT         = 0x84,  /* Concatentation, implicit operator */
+    STAR        = 0x85,  /* Closure, * */
+    PLUS        = 0x86,  /* a+ == aa* */
+    QUEST       = 0x87,  /* a? == a|nothing, i.e. 0 or 1 a's */
+    ANY         = 0xB0,  /* Any character except newline, . */
+    ANYNL       = 0xB1,  /* Any character including newline, . */
+    NOP         = 0xB2,  /* No operation, internal use only */
+    BOL         = 0xB3,  /* Beginning of line, ^ */
+    EOL         = 0xB4,  /* End of line, $ */
+    CCLASS      = 0xB5,  /* Character class, [] */
+    NCCLASS     = 0xB6,  /* Negated character class, [] */
+    WBOUND      = 0xBD,  /* Non-word boundary, not consuming meta char */
+    NWBOUND     = 0xBE,  /* Word boundary, not consuming meta char */
+    END         = 0xBF,  /* Terminate: match found */
+    CLS_d = 0x90, CLS_D, /* digit, non-digit */
+    CLS_s       , CLS_S, /* space, non-space */
+    CLS_w       , CLS_W, /* word, non-word */
+    CLS_an      , CLS_a, /* alphanum, alpha */
+    CLS_l       , CLS_u, /* lower, upper */
+    CLS_bl      , CLS_x, /* blank, xdigit */
+    CLS_pu      , CLS_c, /* punct, ctrl */
+    CLS_pr      , CLS_g, /* print, graphic */
+};
 
 /*
  *  regexec execution lists
@@ -634,22 +629,12 @@ nextc(Parser *par, Rune *rp)
             case 'r': *rp = '\r'; break;
             case 'v': *rp = '\v'; break;
             case 'f': *rp = '\f'; break;
-            case 'a': *rp = CLS_a; break;
-            case 'A': *rp = CLS_A; break;
-            case 'w': *rp = CLS_w; break;
-            case 'W': *rp = CLS_W; break;
-            case 's': *rp = CLS_s; break;
-            case 'S': *rp = CLS_S; break;
             case 'd': *rp = CLS_d; break;
             case 'D': *rp = CLS_D; break;
-            case 'x': *rp = CLS_x; break;
-            case 'X': *rp = CLS_X; break;
-            case 'c': *rp = CLS_c; break;
-            case 'C': *rp = CLS_C; break;
-            case 'p': *rp = CLS_p; break;
-            case 'P': *rp = CLS_P; break;
-            case 'l': *rp = CLS_l; break;
-            case 'u': *rp = CLS_u; break;            
+            case 's': *rp = CLS_s; break;
+            case 'S': *rp = CLS_S; break;
+            case 'w': *rp = CLS_w; break;
+            case 'W': *rp = CLS_W; break;
         }      
         return true;
     }
@@ -666,7 +651,9 @@ lex(Parser *par, int dot_type)
     quoted = nextc(par, &par->yyrune);
     if (quoted) {
         if (par->yyrune == 'b')
-            return WORDBND;
+            return WBOUND;
+        if (par->yyrune == 'B')
+            return NWBOUND;
         if (par->yyrune != 0)
             return RUNE;
     }
@@ -712,29 +699,47 @@ bldcclass(Parser *par)
     }
 
     /* parse class into a set of spans */
-    for (; ep < &r[NCCRUNE];) {
+    for (; ep < &r[NCCRUNE]; quoted = nextc(par, &rune)) {
         if (rune == 0) {
             rcerror(par, "malformed '[]'");
             return 0;
         }
-        if (!quoted && rune == ']')
-            break;
-        if (!quoted && rune == '-') {
-            if (ep == r) {
-                rcerror(par, "malformed '[]'");
-                return 0;
+        if (!quoted) {
+            if (rune == ']')
+                break;
+            if (rune == '-') {
+                if (ep == r) {
+                    rcerror(par, "malformed '[]'");
+                    return 0;
+                }
+                quoted = nextc(par, &rune);
+                if ((!quoted && rune == ']') || rune == 0) {
+                    rcerror(par, "malformed '[]'");
+                    return 0;
+                }
+                *(ep-1) = rune;
+                continue;
             }
-            quoted = nextc(par, &rune);
-            if ((!quoted && rune == ']') || rune == 0) {
-                rcerror(par, "malformed '[]'");
-                return 0;
+            if (rune == '[' && *par->exprp == ':') {
+                static struct { const char* c; int n, r; } cls[] = {
+                    {":alnum:]", 8, CLS_an}, {":alpha:]", 8, CLS_a}, {":blank:]", 8, CLS_bl}, 
+                    {":cntrl:]", 8, CLS_c}, {":digit:]", 8, CLS_d}, {":graph:]", 8, CLS_g}, 
+                    {":lower:]", 8, CLS_l}, {":print:]", 8, CLS_pr}, {":punct:]", 8, CLS_pu},
+                    {":space:]", 8, CLS_s}, {":upper:]", 8, CLS_u}, {":xdigit:]", 9, CLS_x},
+                    {":d:]", 4, CLS_d}, {":s:]", 4, CLS_s}, {":w:]", 4, CLS_w},
+                };
+                for (unsigned i = 0; i < (sizeof cls/sizeof *cls); ++i)
+                    if (!strncmp(par->exprp, cls[i].c, cls[i].n)) {
+                        par->exprp += cls[i].n;
+                        *ep++ = cls[i].r;
+                        *ep++ = cls[i].r;
+                        goto proceed;
+                    }
             }
-            *(ep-1) = rune;
-        } else {
-            *ep++ = rune;
-            *ep++ = rune;
         }
-        quoted = nextc(par, &rune);
+        *ep++ = rune;
+        *ep++ = rune;
+        proceed:;
     }
 
     /* sort on span start */
@@ -863,22 +868,21 @@ regcompnl9(const char *s)
 static int 
 runematch(Rune s, Rune r)
 {
-    int inv = false;
     switch (s) {
-        case CLS_A: inv = true;
-        case CLS_a: return inv ^ isalpha(r);
-        case CLS_W: inv = true;
-        case CLS_w: return inv ^ (isalnum(r) || r == '_');
-        case CLS_S: inv = true;
-        case CLS_s: return inv ^ isspace(r);
-        case CLS_D: inv = true;
-        case CLS_d: return inv ^ isdigit(r);
-        case CLS_X: inv = true;
-        case CLS_x: return inv ^ isxdigit(r);
-        case CLS_C: inv = true;
-        case CLS_c: return inv ^ iscntrl(r);
-        case CLS_P: inv = true;
-        case CLS_p: return inv ^ ispunct(r);
+        case CLS_d: return isdigit(r);
+        case CLS_D: return !isdigit(r);
+        case CLS_s: return isspace(r);
+        case CLS_S: return !isspace(r);
+        case CLS_w: return (isalnum(r) | (r == '_'));
+        case CLS_W: return !(isalnum(r) | (r == '_'));
+        case CLS_a: return isalpha(r);
+        case CLS_bl: return ((r == ' ') | (r == '\t'));
+        case CLS_c: return iscntrl(r);
+        case CLS_g: return isgraph(r);
+        case CLS_an: return isalnum(r);
+        case CLS_pr: return isprint(r);
+        case CLS_pu: return ispunct(r);
+        case CLS_x: return isxdigit(r);
         case CLS_l: return islower(r);
         case CLS_u: return isupper(r);
     }
@@ -986,9 +990,11 @@ regexec1(const Reprog *progp,    /* program to run */
                     if (s == j->eol || r == 0 || r == '\n')
                         continue;
                     break;
-                case WORDBND:
-                    if (s == bol || s == j->eol || ((isalnum(s[-1]) || s[-1] == '_')
-                                                  ^ (isalnum(s[ 0]) || s[ 0] == '_')))
+                case NWBOUND:
+                    ok = true; /* fallthrough */
+                case WBOUND:
+                    if (ok ^ (s == bol || s == j->eol || ((isalnum(s[-1]) || s[-1] == '_')
+                                                        ^ (isalnum(s[ 0]) || s[ 0] == '_'))))
                         continue;
                     break;
                 case NCCLASS:
