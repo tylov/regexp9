@@ -48,12 +48,11 @@ typedef uint32_t Rune;
 /*
  *    character class, each pair of rune's defines a range
  */
-typedef struct Reclass  Reclass;
-struct Reclass
+typedef struct
 {
     Rune *end;
     Rune spans[NCCRUNE];
-};
+} Reclass;
 
 /*
  *    Machine instructions
@@ -73,12 +72,19 @@ typedef struct Reinst
     } l;
 } Reinst;
 
+typedef struct {
+    bool ignorecase;
+    bool dotall;
+    bool newline;
+} Reflags;
+
 /*
  *    Reprogram definition
  */
 struct Reprog
 {
     Reinst  *startinst;     /* start pc */
+    Reflags flags;
     Reclass cclass[NCLASS]; /* .data */
     Reinst  firstinst[];    /* .text : originally 5 elements? */
 };
@@ -98,7 +104,7 @@ typedef struct Resublist
 /*
  * Actions and Tokens (Reinst types)
  *
- *  0x80-0x8F: operators, value == precedence
+ *  0x80-0x8F: operators, value => precedence
  *  0x90-0xAF: RUNE and char classes.
  *  0xB0-0xBF: tokens, i.e. operands for operators
  */
@@ -164,29 +170,44 @@ typedef struct Reljunk
  * utf8 and Rune code
  **********************/
 
-static inline int
-utf8_codep_size(const char* s) /* branchless */
+enum { UTF8_OK = 0, UTF8_ERROR = 4 };
+typedef struct { uint32_t state, codep, len; } utf8_decode_t;
+
+static inline uint32_t 
+utf8_decode(utf8_decode_t *c, const uint8_t b)
 {
-    uint8_t u = (uint8_t)*s;
-    int ret = (u & 0xF0) == 0xE0;
-    ret += ret << 1;                       /* 3 */
-    ret |= u < 0x80;                       /* 1 */
-    ret |= ((0xC1 < u) & (u < 0xE0)) << 1; /* 2 */
-    ret |= ((0xEF < u) & (u < 0xF5)) << 2; /* 4 */
-    return ret;
+    switch (c->state) {
+    case UTF8_OK:
+        if      (b < 0x80) c->codep = b, c->len = 1;
+        else if (b < 0xc2) c->state = UTF8_ERROR;
+        else if (b < 0xe0) c->state = 1, c->codep = b & 0x1f, c->len = 2;
+        else if (b < 0xf0) c->state = 2, c->codep = b & 0x0f, c->len = 3;
+        else if (b < 0xf5) c->state = 3, c->codep = b & 0x07, c->len = 4;
+        else c->state = UTF8_ERROR;
+        break;
+    case 1: case 2: case 3:
+        if ((b & 0xc0) == 0x80) {
+            c->state -= 1;
+            c->codep = (c->codep << 6) | (b & 0x3f);
+        } else
+            c->state = UTF8_ERROR;
+    }
+    return c->state;
 }
 
 static int
 chartorune(Rune *rune, const char *s)
 {
-    int n = utf8_codep_size(s);
-    *rune = s[0];
-    switch (n) {
-    case 4: *rune |= s[3] << 24;
-    case 3: *rune |= s[2] << 16;
-    case 2: *rune |= s[1] << 8;
+    utf8_decode_t ctx = {UTF8_OK};
+    const uint8_t *b = (const uint8_t*)s;
+    utf8_decode(&ctx, *b++);
+    switch (ctx.len) {
+    case 4: utf8_decode(&ctx, *b++);
+    case 3: utf8_decode(&ctx, *b++);
+    case 2: utf8_decode(&ctx, *b++);
     }
-    return n;    
+    *rune = ctx.codep;
+    return ctx.len;    
 }
 
 static const char*
@@ -308,23 +329,24 @@ typedef struct Node
 #define NSTACK 20
 typedef struct Parser
 {
+    const char* exprp;   /* pointer to next character in source expression */
     Node andstack[NSTACK];
     Node* andp;
-    int atorstack[NSTACK];
-    int* atorp;
-    int cursubid;        /* id of current subexpression */
-    int subidstack[NSTACK]; /* parallel to atorstack */
-    int* subidp;
-    int lastwasand;      /* Last token was operand */
-    int nbra;
-    const char* exprp;   /* pointer to next character in source expression */
-    int lexdone;
-    int nclass;
-    Reclass*classp;
-    Reinst* freep;
+    short atorstack[NSTACK];
+    short* atorp;
+    short subidstack[NSTACK]; /* parallel to atorstack */
+    short* subidp;
+    short cursubid;      /* id of current subexpression */
     int errors;
+    bool ignorecase;
+    bool lastwasand;     /* Last token was operand */
+    bool lexdone;
+    short nbra;
+    short nclass;
     Rune yyrune;         /* last lex'd rune */
     Reclass *yyclassp;   /* last lex'd class */
+    Reclass* classp;
+    Reinst* freep;
     jmp_buf regkaboom;
 } Parser;
 
@@ -334,13 +356,11 @@ static void pushand(Parser *par, Reinst *first, Reinst *last);
 static void pushator(Parser *par, int type);
 static void evaluntil(Parser *par, int type);
 static int  bldcclass(Parser *par);
-extern void regerror9(const char*);
 
 static void
-rcerror(Parser *par, const char *s)
+rcerror(Parser *par, cregex_error_t err)
 {
-    par->errors++;
-    regerror9(s);
+    par->errors |= err;
     longjmp(par->regkaboom, 1);
 }
 
@@ -375,10 +395,10 @@ static void
 _operator(Parser *par, int t)
 {
     if (t==RBRA && --par->nbra<0)
-        rcerror(par, "unmatched right paren");
+        rcerror(par, creg_unmatchedrightparenthesis);
     if (t==LBRA) {
         if (++par->cursubid >= NSUBEXP)
-            rcerror(par, "too many subexpressions");
+            rcerror(par, creg_toomanysubexpressions);
         par->nbra++;
         if (par->lastwasand)
             _operator(par, CAT);
@@ -392,31 +412,10 @@ _operator(Parser *par, int t)
 }
 
 static void
-regerr2(Parser *par, const char *s, int c)
-{
-    char buf[100];
-    char *cp = buf;
-    while (*s)
-        *cp++ = *s++;
-    *cp++ = c;
-    *cp = '\0'; 
-    rcerror(par, buf);
-}
-
-static void
-cant(Parser *par, const char *s)
-{
-    char buf[100];
-    strcpy(buf, "can't happen: ");
-    strcat(buf, s);
-    rcerror(par, buf);
-}
-
-static void
 pushand(Parser *par, Reinst *f, Reinst *l)
 {
     if (par->andp >= &par->andstack[NSTACK])
-        cant(par, "operand stack overflow");
+        rcerror(par, creg_operandstackoverflow);
     par->andp->first = f;
     par->andp->last = l;
     par->andp++;
@@ -426,7 +425,7 @@ static void
 pushator(Parser *par, int t)
 {
     if (par->atorp >= &par->atorstack[NSTACK])
-        cant(par, "operator stack overflow");
+        rcerror(par, creg_operatorstackoverflow);
     *par->atorp++ = t;
     *par->subidp++ = par->cursubid;
 }
@@ -437,7 +436,7 @@ popand(Parser *par, int op)
     Reinst *inst;
 
     if (par->andp <= &par->andstack[0]) {
-        regerr2(par, "missing operand for ", op);
+        rcerror(par, creg_missingoperand);
         inst = newinst(par, NOP);
         pushand(par, inst, inst);
     }
@@ -448,7 +447,7 @@ static int
 popator(Parser *par)
 {
     if (par->atorp <= &par->atorstack[0])
-        cant(par, "operator stack underflow");
+        rcerror(par, creg_operatorstackunderflow);
     --par->subidp;
     return *--par->atorp;
 }
@@ -462,7 +461,7 @@ evaluntil(Parser *par, int pri)
     while (pri==RBRA || par->atorp[-1]>=pri) {
         switch (popator(par)) {
         default:
-            rcerror(par, "unknown operator in evaluntil");
+            rcerror(par, creg_unknownoperator);
             break;
         case LBRA:        /* must have been RBRA */
             op1 = popand(par, '(');
@@ -615,7 +614,7 @@ static Reclass*
 newclass(Parser *par)
 {
     if (par->nclass >= NCLASS)
-        regerr2(par, "too many character classes; limit", NCLASS+'0');
+        rcerror(par, creg_toomanycharacterclasses);
     return &(par->classp[par->nclass++]);
 }
 
@@ -675,6 +674,8 @@ lex(Parser *par, int* dot_type)
         if (par->exprp[0] == '?') switch (par->exprp[1]) {
             case 's': if (par->exprp[2] == ')')
                 { *dot_type = ANYNL; par->exprp += 3; goto start; }
+            case 'i': if (par->exprp[2] == ')')
+                { par->ignorecase = true; par->exprp += 3; goto start; }
         }
         return LBRA;
     case ')': return RBRA;
@@ -712,7 +713,7 @@ bldcclass(Parser *par)
     /* parse class into a set of spans */
     for (; ep < &r[NCCRUNE]; quoted = nextc(par, &rune)) {
         if (rune == 0) {
-            rcerror(par, "malformed '[]'");
+            rcerror(par, creg_malformedsquarebrackets);
             return 0;
         }
         if (!quoted) {
@@ -720,12 +721,12 @@ bldcclass(Parser *par)
                 break;
             if (rune == '-') {
                 if (ep == r) {
-                    rcerror(par, "malformed '[]'");
+                    rcerror(par, creg_malformedsquarebrackets);
                     return 0;
                 }
                 quoted = nextc(par, &rune);
                 if ((!quoted && rune == ']') || rune == 0) {
-                    rcerror(par, "malformed '[]'");
+                    rcerror(par, creg_malformedsquarebrackets);
                     return 0;
                 }
                 *(ep-1) = rune;
@@ -795,11 +796,11 @@ regcomp1(Parser *par, const char *s, int dot_type)
     int token;
     Reprog *volatile pp;
 
-    /* get memory for the program */
+    /* get memory for the program. estimated max usage */
     const int instcap = 5 + 6*strlen(s);
     pp = (Reprog *)malloc(sizeof(Reprog) + instcap*sizeof(Reinst));
     if (pp == NULL) {
-        regerror9("out of memory");
+        rcerror(par, creg_outofmemory);
         return NULL;
     }
     par->freep = pp->firstinst;
@@ -839,13 +840,14 @@ regcomp1(Parser *par, const char *s, int dot_type)
     dumpstack(par);
 #endif
     if (par->nbra)
-        rcerror(par, "unmatched left paren");
+        rcerror(par, creg_unmatchedleftparenthesis);
     --par->andp;    /* points to first and only operand */
     pp->startinst = par->andp->first;
 #ifdef DEBUG
     dump(pp);
 #endif
     pp = optimize(par, pp);
+    pp->flags.ignorecase = par->ignorecase;
 #ifdef DEBUG
     print("start: %d\n", par->andp->first-pp->firstinst);
     dump(pp);
@@ -877,7 +879,7 @@ regcompnl9(const char *s)
  *************/
 
 static int 
-runematch(Rune s, Rune r)
+runematch(Rune s, Rune r, int icase)
 {
     int inv = 0;
     switch (s) {
@@ -895,10 +897,10 @@ runematch(Rune s, Rune r)
         case CLS_pr: return isprint(r) != 0;
         case CLS_pu: return ispunct(r) != 0;
         case CLS_xd: return isxdigit(r) != 0;
-        case CLS_lo: return islower(r) != 0;
-        case CLS_up: return isupper(r) != 0;
+        case CLS_lo: return (icase ? isalpha(s) : islower(r)) != 0;
+        case CLS_up: return (icase ? isalpha(s) : isupper(r)) != 0;
     }
-    return s == r;
+    return icase ? tolower(s) == tolower(r) : s == r;
 }
 
 /*
@@ -917,18 +919,13 @@ regexec1(const Reprog *progp,    /* program to run */
     int flag=0;
     Reinst *inst;
     Relist *tlp;
-    const char *s;
-    int i, checkstart;
+    Relist *tl, *nl;    /* This list, next list */
+    Relist *tle, *nle;  /* Ends of this and next list */
+    const char *s, *p;
+    int i, n, checkstart;
     Rune r, *rp, *ep;
-    int n;
-    Relist* tl;        /* This list, next list */
-    Relist* nl;
-    Relist* tle;        /* ends of this and next list */
-    Relist* nle;
-    int match;
-    const char *p;
+    int match = false;
 
-    match = false;
     checkstart = j->starttype;
     if (mp)
         for (i=0; i<ms; i++) {
@@ -972,6 +969,7 @@ regexec1(const Reprog *progp,    /* program to run */
         /* Add first instruction to current list */
         if (!match)
             _renewemptythread(tl, progp->startinst, ms, s);
+        bool icase = progp->flags.ignorecase;
 
         /* Execute machine until current list is empty */
         for (tlp=tl; tlp->inst; tlp++) {    /* assignment = */
@@ -980,7 +978,7 @@ regexec1(const Reprog *progp,    /* program to run */
 
                 switch (inst->type) {
                 case RUNE:    /* regular character */
-                    ok = runematch(inst->r.rune, r);
+                    ok = runematch(inst->r.rune, r, icase);
                     break;
                 case LBRA:
                     tlp->se.m[inst->r.subid].sp = s;
@@ -1014,7 +1012,7 @@ regexec1(const Reprog *progp,    /* program to run */
                 case CCLASS:
                     ep = inst->r.classp->end;
                     for (rp = inst->r.classp->spans; rp < ep; rp += 2)
-                        if ((r >= rp[0] && r <= rp[1]) || (rp[0] == rp[1] && runematch(rp[0], r)))
+                        if ((r >= rp[0] && r <= rp[1]) || (rp[0] == rp[1] && runematch(rp[0], r, icase)))
                             break;
                     ok ^= (rp < ep);
                     break;
@@ -1171,18 +1169,6 @@ regsub9(const char *sp,    /* source string */
         sp++;
     }
     *dp = '\0';
-}
-
-/**************
- * regerror.c *
- **************/
-
-#include <stdio.h>
-
-extern void
-regerror9(const char *s)
-{
-    fprintf(stderr, "regerror: %s\n", s);
 }
 
 extern void
