@@ -32,6 +32,7 @@ THE SOFTWARE.
 #include <string.h>
 #include <ctype.h>
 #include "regexp9.h"
+#include "utf8_tables.h"
 
 /*************
  * regexp9.h *
@@ -81,17 +82,26 @@ typedef struct {
 /*
  *    Reprogram definition
  */
-struct Reprog
+typedef struct Reprog
 {
     Reinst  *startinst;     /* start pc */
     Reflags flags;
+    int nsubids;
     Reclass cclass[NCLASS]; /* .data */
     Reinst  firstinst[];    /* .text : originally 5 elements? */
-};
+} Reprog;
 
 /*************
  * regcomp.h *
  *************/
+
+/*
+ *    Sub expression matches
+ */
+typedef struct Resub {
+    const char *sp; /* start pos */
+    const char *ep; /* end pos */
+} Resub;
 
 /*
  *  substitution list
@@ -214,14 +224,26 @@ static const char*
 utfrune(const char *s, Rune c)
 {
     Rune r;
-    int n;
 
     if (c < 128)        /* ascii */
         return strchr((char *)s, c);
 
     for (;;) {
-        n = chartorune(&r, s);
+        int n = chartorune(&r, s);
         if (r == c) return s;
+        if ((r == 0) | (n == 0)) return NULL;
+        s += n;
+    }
+}
+
+static const char*
+utfruneicase(const char *s, Rune c)
+{
+    Rune r;
+    c = utf8_tolower(c);
+    for (;;) {
+        int n = chartorune(&r, s);
+        if (utf8_tolower(r) == c) return s;
         if ((r == 0) | (n == 0)) return NULL;
         s += n;
     }
@@ -235,7 +257,7 @@ utfrune(const char *s, Rune c)
  *  save a new match in mp
  */
 static void
-_renewmatch(Resub *mp, int ms, Resublist *sp)
+_renewmatch(Resub *mp, int ms, Resublist *sp, int nsubids)
 {
     int i;
 
@@ -243,10 +265,10 @@ _renewmatch(Resub *mp, int ms, Resublist *sp)
         return;
     if (mp[0].sp==NULL || sp->m[0].sp<mp[0].sp ||
        (sp->m[0].sp==mp[0].sp && sp->m[0].ep>mp[0].ep)) {
-        for (i=0; i<ms && i<NSUBEXP; i++)
+        for (i=0; i<ms && i<=nsubids; i++)
             mp[i] = sp->m[i];
-        for (; i<ms; i++)
-            mp[i].sp = mp[i].ep = NULL;
+        //for (; i<ms; i++)
+        //    mp[i].sp = mp[i].ep = NULL;
     }
 }
 
@@ -803,6 +825,8 @@ regcomp1(Parser *par, const char *s, int dot_type)
         rcerror(par, creg_outofmemory);
         return NULL;
     }
+    pp->flags.ignorecase = false;
+    pp->flags.dotall = false;
     par->freep = pp->firstinst;
     par->classp = pp->cclass;
     par->errors = 0;
@@ -812,6 +836,7 @@ regcomp1(Parser *par, const char *s, int dot_type)
 
     /* go compile the sucker */
     par->lexdone = false;
+    par->ignorecase = false;
     par->exprp = s;
     par->nclass = 0;
     par->nbra = 0;
@@ -847,7 +872,8 @@ regcomp1(Parser *par, const char *s, int dot_type)
     dump(pp);
 #endif
     pp = optimize(par, pp);
-    pp->flags.ignorecase = par->ignorecase;
+    pp->flags.ignorecase |= par->ignorecase;
+    pp->nsubids = par->cursubid;
 #ifdef DEBUG
     print("start: %d\n", par->andp->first-pp->firstinst);
     dump(pp);
@@ -860,26 +886,13 @@ out:
     return pp;
 }
 
-extern Reprog*
-regcomp9(const char *s)
-{
-    Parser par;
-    return regcomp1(&par, s, ANY);
-}
-
-extern Reprog*
-regcompnl9(const char *s)
-{
-    Parser par;
-    return regcomp1(&par, s, ANYNL);
-}
 
 /*************
  * regexec.c *
  *************/
 
 static int 
-runematch(Rune s, Rune r, int icase)
+runematch(Rune s, Rune r, bool icase)
 {
     int inv = 0;
     switch (s) {
@@ -888,19 +901,19 @@ runematch(Rune s, Rune r, int icase)
         case CLS_S: inv = true;
         case CLS_s: return inv ^ (isspace(r) != 0);
         case CLS_W: inv = true;
-        case CLS_w: return inv ^ ((isalnum(r) != 0) | (r == '_'));
-        case CLS_al: return isalpha(r) != 0;
+        case CLS_w: return inv ^ (utf8_isalnum(r) | (r == '_'));
+        case CLS_al: return utf8_isalpha(r);
         case CLS_bl: return ((r == ' ') | (r == '\t'));
         case CLS_ct: return iscntrl(r) != 0;
         case CLS_gr: return isgraph(r) != 0;
-        case CLS_an: return isalnum(r) != 0;
+        case CLS_an: return utf8_isalnum(r);
         case CLS_pr: return isprint(r) != 0;
         case CLS_pu: return ispunct(r) != 0;
         case CLS_xd: return isxdigit(r) != 0;
-        case CLS_lo: return (icase ? isalpha(s) : islower(r)) != 0;
-        case CLS_up: return (icase ? isalpha(s) : isupper(r)) != 0;
+        case CLS_lo: return icase ? utf8_isalpha(s) : utf8_islower(r);
+        case CLS_up: return icase ? utf8_isalpha(s) : utf8_isupper(r);
     }
-    return icase ? tolower(s) == tolower(r) : s == r;
+    return icase ? utf8_tolower(s) == utf8_tolower(r) : s == r;
 }
 
 /*
@@ -913,7 +926,8 @@ regexec1(const Reprog *progp,    /* program to run */
     const char *bol,    /* string to run machine on */
     Resub *mp,    /* subexpression elements */
     int ms,        /* number of elements at mp */
-    Reljunk *j
+    Reljunk *j,
+    int mflags
 )
 {
     int flag=0;
@@ -924,8 +938,9 @@ regexec1(const Reprog *progp,    /* program to run */
     const char *s, *p;
     int i, n, checkstart;
     Rune r, *rp, *ep;
-    int match = false;
+    int match = 0;
 
+    bool icase = progp->flags.ignorecase || (mflags & creg_ignorecase);
     checkstart = j->starttype;
     if (mp)
         for (i=0; i<ms; i++) {
@@ -942,7 +957,8 @@ regexec1(const Reprog *progp,    /* program to run */
         if (checkstart) {
             switch (j->starttype) {
             case RUNE:
-                p = utfrune(s, j->startchar);
+                p = icase ? utfruneicase(s, j->startchar)
+                          : utfrune(s, j->startchar);
                 if (p == NULL || s == j->eol)
                     return match;
                 s = p;
@@ -967,9 +983,8 @@ regexec1(const Reprog *progp,    /* program to run */
         nl->inst = NULL;
 
         /* Add first instruction to current list */
-        if (!match)
+        if (match == 0)
             _renewemptythread(tl, progp->startinst, ms, s);
-        bool icase = progp->flags.ignorecase;
 
         /* Execute machine until current list is empty */
         for (tlp=tl; tlp->inst; tlp++) {    /* assignment = */
@@ -1023,10 +1038,10 @@ regexec1(const Reprog *progp,    /* program to run */
                     /* efficiency: advance and re-evaluate */
                     continue;
                 case END:    /* Match! */
-                    match = true;
+                    match = 1;
                     tlp->se.m[0].ep = s;
                     if (mp != NULL)
-                        _renewmatch(mp, ms, &tlp->se);
+                        _renewmatch(mp, ms, &tlp->se, progp->nsubids);
                     break;
                 }
 
@@ -1048,7 +1063,8 @@ regexec2(const Reprog *progp,    /* program to run */
     const char *bol,    /* string to run machine on */
     Resub *mp,    /* subexpression elements */
     int ms,        /* number of elements at mp */
-    Reljunk *j
+    Reljunk *j,
+    int mflags
 )
 {
     int rv;
@@ -1064,16 +1080,17 @@ regexec2(const Reprog *progp,    /* program to run */
     j->reliste[0] = relists + BIGLISTSIZE - 2;
     j->reliste[1] = relists + 2*BIGLISTSIZE - 2;
 
-    rv = regexec1(progp, bol, mp, ms, j);
+    rv = regexec1(progp, bol, mp, ms, j, mflags);
     free(relists);
     return rv;
 }
 
-extern int
+static int
 regexec9(const Reprog *progp,    /* program to run */
     const char *bol,    /* string to run machine on */
     Resub *mp,    /* subexpression elements */
-    int ms)        /* number of elements at mp */
+    int ms,
+    int mflags)   /* number of elements at mp */
 {
     Reljunk j;
     Relist relist0[LISTSIZE], relist1[LISTSIZE];
@@ -1084,12 +1101,14 @@ regexec9(const Reprog *progp,    /* program to run */
      */
     j.starts = bol;
     j.eol = NULL;
+    /*
     if (mp && ms>0) {
         if (mp->sp)
             j.starts = mp->sp;
         if (mp->ep)
             j.eol = mp->ep;
     }
+    */
     j.starttype = 0;
     j.startchar = 0;
     if (progp->startinst->type == RUNE && progp->startinst->r.rune < 128) {
@@ -1105,13 +1124,11 @@ regexec9(const Reprog *progp,    /* program to run */
     j.reliste[0] = relist0 + LISTSIZE - 2;
     j.reliste[1] = relist1 + LISTSIZE - 2;
 
-    rv = regexec1(progp, bol, mp, ms, &j);
+    rv = regexec1(progp, bol, mp, ms, &j, mflags);
     if (rv >= 0)
         return rv;
-    rv = regexec2(progp, bol, mp, ms, &j);
-    if (rv >= 0)
-        return rv;
-    return -1;
+    rv = regexec2(progp, bol, mp, ms, &j, mflags);
+    return rv;
 }
 
 /************
@@ -1119,7 +1136,7 @@ regexec9(const Reprog *progp,    /* program to run */
  ************/
 
 /* substitute into one string using the matches from the last regexec() */
-extern void
+static void
 regsub9(const char *sp,    /* source string */
     char *dp,    /* destination string */
     int dlen,
@@ -1171,8 +1188,43 @@ regsub9(const char *sp,    /* source string */
     *dp = '\0';
 }
 
-extern void
-regfree9(Reprog* prog)
-{
-    free(prog);
+/*
+ * API functions
+ */
+
+int cregex_compile(cregex_t *rx, const char* pattern, int cflags) {
+    Parser par;
+    rx->prog = regcomp1(&par, pattern, cflags & creg_dotall ? ANYNL : ANY);
+    return par.errors;
+}
+
+int cregex_find(const cregex_t *rx, const char* string, 
+                size_t nmatch, cregmatch_t match[], int mflags) {
+    Resub m[32] = {0};
+    int res = regexec9(rx->prog, string, m, nmatch, mflags);
+    if (res != 1) return creg_nomatch;
+
+    for (size_t i = 0; m[i].ep && i < nmatch; ++i) {
+        match[i].rm_so = m[i].sp - string;
+        match[i].rm_eo = m[i].ep - string;
+    }
+    return creg_ok;
+}
+
+void cregex_replace(const char* src, char* dst, int dsize,
+                    int nmatch, const cregmatch_t match[]) {
+    Resub m[32];
+    for (size_t i = 0; i < nmatch; ++i) {
+        m[i].sp = src + match[i].rm_so;
+        m[i].ep = src + match[i].rm_eo;
+    }
+    regsub9(src, dst, dsize, m, nmatch);
+}
+
+int cregex_subexp_count(cregex_t rx) {
+    return rx.prog->nsubids;
+}
+
+void cregex_drop(cregex_t* preg) {
+    free(preg->prog);
 }
