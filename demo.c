@@ -16,20 +16,18 @@ int main() {
 
     enum {N=5};
     cregmatch_t m[N] = {0};
-
+    int n;
     cregex_t rx;
     int ret = cregex_compile(&rx, pattern, 0);
     printf("ret %d\n", ret);
-    int n = cregex_find(&rx, input, N, m, creg_fullmatch);
-    if (n > 0) {
+    while ((n = cregex_find(&rx, input, N, m, creg_fullmatch|creg_next)) > 0)
+    {
         printf("`%s` => matched `%s`", input, pattern);
         for (int i=0; i<n; ++i)
-            printf(" (%d, %d)", m[i].rm_so, m[i].rm_eo);
+            printf(" (%d, %d)", (int)(m[i].str - input), (int)m[i].len);
         puts("");
         for (int i=0; i<n; ++i)
-            printf("%d: (%.*s)\n", i, (int)(m[i].rm_eo - m[i].rm_so), input+m[i].rm_so);
+            printf("%d: (%.*s)\n", i, (int)m[i].len, m[i].str);
     }
-    else
-        printf("No match\n");
     cregex_free(&rx);
 }

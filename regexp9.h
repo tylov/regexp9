@@ -53,8 +53,10 @@ typedef enum {
 enum {
     /* flags */
     creg_dotall = 1<<0,     /* compile */
-    creg_ignorecase = 1<<1, /* compile+runtime */
-    creg_fullmatch = 1<<2,
+    creg_ignorecase = 1<<1, /* compile+match */
+    creg_fullmatch = 1<<2,  /* match */
+    creg_next = 1<<3,       /* match */
+    creg_beginend = 1<<4,   /* match */
     /* limits */
     creg_max_classes = 16,
     creg_max_captures = 32,
@@ -64,10 +66,9 @@ typedef struct {
     struct Reprog* prog;
 } cregex_t;
 
-typedef intptr_t cregoff_t;
 typedef struct {
-    cregoff_t rm_so;
-    cregoff_t rm_eo;
+    const char* str;
+    size_t len;
 } cregmatch_t;
 
 int cregex_compile(cregex_t *rx, const char* pattern, int cflags);

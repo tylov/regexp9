@@ -27,10 +27,10 @@ int main(int argc, char *argv[])
         pos = buf;
         while ((n = cregex_find(&rx, pos, N, m, 0)) > 0) {
             printf("%d:", l);
-            for (int i=0; i<n; ++i) printf("%.*s|", (int)(m[i].rm_eo - m[i].rm_so), pos+m[i].rm_so);
+            for (int i=0; i<n; ++i) printf("%.*s|", (int)m[i].len, m[i].str);
             puts("");
-            pos = buf + m[0].rm_eo;
-            m[0].rm_so = m[0].rm_eo = 0;
+            pos = m[0].str + m[0].len;
+            m[0].str = NULL; m[0].len = 0;
         }
     }
     free(buf);
