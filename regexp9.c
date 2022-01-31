@@ -40,9 +40,9 @@ THE SOFTWARE.
 
 typedef uint32_t Rune;
 /* max character classes per program */
-#define NCLASS 16
+#define NCLASS creg_max_char_classes
 /* max subexpressions */
-#define NSUBEXP 32
+#define NSUBEXP creg_max_subexpr
 /* max rune ranges per character class */
 #define NCCRUNE (NSUBEXP * 2)
 
@@ -76,7 +76,6 @@ typedef struct Reinst
 typedef struct {
     bool ignorecase;
     bool dotall;
-    bool newline;
 } Reflags;
 
 /*
@@ -382,7 +381,7 @@ static int  bldcclass(Parser *par);
 static void
 rcerror(Parser *par, cregex_error_t err)
 {
-    par->errors |= err;
+    par->errors = err;
     longjmp(par->regkaboom, 1);
 }
 
@@ -826,7 +825,7 @@ regcomp1(Parser *par, const char *s, int dot_type)
         return NULL;
     }
     pp->flags.ignorecase = false;
-    pp->flags.dotall = false;
+    pp->flags.dotall = (dot_type == ANYNL);
     par->freep = pp->firstinst;
     par->classp = pp->cclass;
     par->errors = 0;
@@ -1195,25 +1194,32 @@ regsub9(const char *sp,    /* source string */
 int cregex_compile(cregex_t *rx, const char* pattern, int cflags) {
     Parser par;
     rx->prog = regcomp1(&par, pattern, cflags & creg_dotall ? ANYNL : ANY);
-    return par.errors;
+    if (rx->prog && (cflags & creg_ignorecase))
+        rx->prog->flags.ignorecase = true;
+    return par.errors < 0 ? par.errors : 1 + rx->prog->nsubids;
 }
 
 int cregex_find(const cregex_t *rx, const char* string, 
                 size_t nmatch, cregmatch_t match[], int mflags) {
-    Resub m[32] = {0};
+    Resub m[NSUBEXP];
     int res = regexec9(rx->prog, string, m, nmatch, mflags);
-    if (res != 1) return creg_nomatch;
-
-    for (size_t i = 0; m[i].ep && i < nmatch; ++i) {
-        match[i].rm_so = m[i].sp - string;
-        match[i].rm_eo = m[i].ep - string;
+    switch (res) {
+    case 1:
+        for (size_t i = 0; m[i].ep && i < nmatch; ++i) {
+            match[i].rm_so = m[i].sp - string;
+            match[i].rm_eo = m[i].ep - string;
+        }
+        return 1 + rx->prog->nsubids;
+    case 0:
+        return creg_nomatch;
+    default:
+        return creg_matcherror;
     }
-    return creg_ok;
 }
 
 void cregex_replace(const char* src, char* dst, int dsize,
                     int nmatch, const cregmatch_t match[]) {
-    Resub m[32];
+    Resub m[NSUBEXP];
     for (size_t i = 0; i < nmatch; ++i) {
         m[i].sp = src + match[i].rm_so;
         m[i].ep = src + match[i].rm_eo;
@@ -1221,7 +1227,7 @@ void cregex_replace(const char* src, char* dst, int dsize,
     regsub9(src, dst, dsize, m, nmatch);
 }
 
-int cregex_subexp_count(cregex_t rx) {
+int cregex_subexpr_count(cregex_t rx) {
     return rx.prog->nsubids;
 }
 

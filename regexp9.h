@@ -23,10 +23,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
-#ifndef CREGEXP9_H_
-#define CREGEXP9_H_
+#ifndef CREGEX9_H_
+#define CREGEX9_H_
 /*
- * regexp9.h
+ * cregex9.h
  * 
  * This is a extended version of regexp9, supporting UTF8 input, common 
  * shorthand character classes, ++.
@@ -35,28 +35,29 @@ THE SOFTWARE.
 #include <stdint.h>
 
 typedef enum {
-    creg_ok = 0,
-    creg_nomatch = 1<<0,
-    creg_outofmemory = 1<<1,
-    creg_unmatchedleftparenthesis = 1<<2,
-    creg_unmatchedrightparenthesis = 1<<3,
-    creg_toomanysubexpressions = 1<<4,
-    creg_toomanycharacterclasses = 1<<5,
-    creg_malformedsquarebrackets = 1<<6,
-    creg_missingoperand = 1<<7,
-    creg_unknownoperator = 1<<8,
-    creg_operandstackoverflow = 1<<28,
-    creg_operatorstackoverflow = 1<<29,
-    creg_operatorstackunderflow = 1<<30,
+    creg_nomatch = -1,
+    creg_matcherror = -2,
+    creg_outofmemory = -3,
+    creg_unmatchedleftparenthesis = -4,
+    creg_unmatchedrightparenthesis = -5,
+    creg_toomanysubexpressions = -6,
+    creg_toomanycharacterclasses = -7,
+    creg_malformedsquarebrackets = -8,
+    creg_missingoperand = -9,
+    creg_unknownoperator = -10,
+    creg_operandstackoverflow = -11,
+    creg_operatorstackoverflow = -12,
+    creg_operatorstackunderflow = -13,
 } cregex_error_t;
 
-typedef enum {
-    creg_dotall = 1<<0,
-} cregex_cflags_t;
-
-typedef enum {
-    creg_ignorecase = 1<<1,
-} cregex_mflags_t;
+enum {
+    /* flags */
+    creg_dotall = 1<<0,     /* compile */
+    creg_ignorecase = 1<<1, /* compile+runtime */
+    /* limits */
+    creg_max_char_classes = 16,
+    creg_max_subexpr = 32,
+};
 
 typedef struct {
     struct Reprog* prog;
@@ -76,13 +77,13 @@ static inline cregex_t cregex_new(const char* pattern, int cflags) {
     return rx;
 }
 
-int cregex_subexp_count(cregex_t rx);
+int cregex_subexpr_count(cregex_t rx);
 
 int cregex_find(const cregex_t *rx, const char* string, 
                 size_t nmatch, cregmatch_t match[], int mflags);
 
 int cregex_match(const cregex_t *rx, const char* string, 
-                size_t nmatch, cregmatch_t match[], int mflags);
+                 size_t nmatch, cregmatch_t match[], int mflags);
 
 void cregex_replace(const char* src, char* dst, int dsize,
                     int nmatch, const cregmatch_t match[]);
