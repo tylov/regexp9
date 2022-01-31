@@ -40,9 +40,9 @@ THE SOFTWARE.
 
 typedef uint32_t Rune;
 /* max character classes per program */
-#define NCLASS creg_max_char_classes
+#define NCLASS creg_max_classes
 /* max subexpressions */
-#define NSUBEXP creg_max_subexpr
+#define NSUBEXP creg_max_captures
 /* max rune ranges per character class */
 #define NCCRUNE (NSUBEXP * 2)
 
@@ -1037,7 +1037,9 @@ regexec1(const Reprog *progp,    /* program to run */
                     /* efficiency: advance and re-evaluate */
                     continue;
                 case END:    /* Match! */
-                    match = 1;
+                    match = !(mflags & creg_fullmatch) ||
+                            ((s == j->eol || r == 0 || r == '\n') &&
+                            (tlp->se.m[0].sp == bol || tlp->se.m[0].sp[-1] == '\n'));
                     tlp->se.m[0].ep = s;
                     if (mp != NULL)
                         _renewmatch(mp, ms, &tlp->se, progp->nsubids);
@@ -1190,13 +1192,16 @@ regsub9(const char *sp,    /* source string */
 /*
  * API functions
  */
-
+#include <stdio.h>
 int cregex_compile(cregex_t *rx, const char* pattern, int cflags) {
     Parser par;
     rx->prog = regcomp1(&par, pattern, cflags & creg_dotall ? ANYNL : ANY);
-    if (rx->prog && (cflags & creg_ignorecase))
-        rx->prog->flags.ignorecase = true;
-    return par.errors < 0 ? par.errors : 1 + rx->prog->nsubids;
+    if (rx->prog) {
+        if (cflags & creg_ignorecase)
+            rx->prog->flags.ignorecase = true;
+        return 1 + rx->prog->nsubids;
+    }
+    return par.errors;
 }
 
 int cregex_find(const cregex_t *rx, const char* string, 
@@ -1227,10 +1232,10 @@ void cregex_replace(const char* src, char* dst, int dsize,
     regsub9(src, dst, dsize, m, nmatch);
 }
 
-int cregex_subexpr_count(cregex_t rx) {
-    return rx.prog->nsubids;
+int cregex_captures(cregex_t rx) {
+    return 1 + rx.prog->nsubids;
 }
 
-void cregex_drop(cregex_t* preg) {
+void cregex_free(cregex_t* preg) {
     free(preg->prog);
 }

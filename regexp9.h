@@ -54,9 +54,10 @@ enum {
     /* flags */
     creg_dotall = 1<<0,     /* compile */
     creg_ignorecase = 1<<1, /* compile+runtime */
+    creg_fullmatch = 1<<2,
     /* limits */
-    creg_max_char_classes = 16,
-    creg_max_subexpr = 32,
+    creg_max_classes = 16,
+    creg_max_captures = 32,
 };
 
 typedef struct {
@@ -77,7 +78,7 @@ static inline cregex_t cregex_new(const char* pattern, int cflags) {
     return rx;
 }
 
-int cregex_subexpr_count(cregex_t rx);
+int cregex_captures(cregex_t rx);
 
 int cregex_find(const cregex_t *rx, const char* string, 
                 size_t nmatch, cregmatch_t match[], int mflags);
@@ -88,6 +89,6 @@ int cregex_match(const cregex_t *rx, const char* string,
 void cregex_replace(const char* src, char* dst, int dsize,
                     int nmatch, const cregmatch_t match[]);
 
-void cregex_drop(cregex_t* preg);
+void cregex_free(cregex_t* preg);
 
 #endif

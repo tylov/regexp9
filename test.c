@@ -34,5 +34,5 @@ int main(int argc, char *argv[])
         }
     }
     free(buf);
-    cregex_drop(&rx);
+    cregex_free(&rx);
 }
