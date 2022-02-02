@@ -56,7 +56,7 @@ enum {
     creg_ignorecase = 1<<1, /* compile+match */
     creg_fullmatch = 1<<2,  /* match */
     creg_next = 1<<3,       /* match */
-    creg_beginend = 1<<4,   /* match */
+    creg_startend = 1<<4,   /* match */
     /* limits */
     creg_max_classes = 16,
     creg_max_captures = 32,
@@ -71,6 +71,7 @@ typedef struct {
     size_t len;
 } cregmatch_t;
 
+/* return number of capture groups on success, or (negative) error code on failure. */
 int cregex_compile(cregex_t *rx, const char* pattern, int cflags);
 
 static inline cregex_t cregex_new(const char* pattern, int cflags) {
@@ -78,14 +79,12 @@ static inline cregex_t cregex_new(const char* pattern, int cflags) {
     cregex_compile(&rx, pattern, cflags);
     return rx;
 }
-
+/* number of capture groups in the regex pattern */
 int cregex_captures(cregex_t rx);
 
+/* return number of capture groups on success, or (negative) error code on failure. */
 int cregex_find(const cregex_t *rx, const char* string, 
                 size_t nmatch, cregmatch_t match[], int mflags);
-
-int cregex_match(const cregex_t *rx, const char* string, 
-                 size_t nmatch, cregmatch_t match[], int mflags);
 
 void cregex_replace(const char* src, char* dst, int dsize,
                     int nmatch, const cregmatch_t match[]);

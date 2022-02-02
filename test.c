@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
         pos = buf;
         while ((n = cregex_find(&rx, pos, N, m, 0)) > 0) {
             printf("%d:", l);
-            for (int i=0; i<n; ++i) printf("%.*s|", (int)m[i].len, m[i].str);
+            for (int i=0; i<n; ++i) printf("(%.*s) ", (int)m[i].len, m[i].str);
             puts("");
             pos = m[0].str + m[0].len;
             m[0].str = NULL; m[0].len = 0;

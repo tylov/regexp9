@@ -670,13 +670,11 @@ lex(Parser *par, int* dot_type)
     int quoted;
     start:
     quoted = nextc(par, &par->yyrune);
-    if (quoted) {
-        if (par->yyrune == 'b')
-            return WBOUND;
-        if (par->yyrune == 'B')
-            return NWBOUND;
-        if (par->yyrune != 0)
-            return RUNE;
+    if (quoted) switch (par->yyrune) {
+        case  0 : return END;
+        case 'b': return WBOUND;
+        case 'B': return NWBOUND;
+        default : return RUNE;
     }
 
     switch (par->yyrune) {
@@ -687,11 +685,14 @@ lex(Parser *par, int* dot_type)
     case '|': return OR;
     case '.': return *dot_type;
     case '(': 
-        if (par->exprp[0] == '?') switch (par->exprp[1]) {
-            case 's': if (par->exprp[2] == ')')
-                { *dot_type = ANYNL; par->exprp += 3; goto start; }
-            case 'i': if (par->exprp[2] == ')')
-                { par->ignorecase = true; par->exprp += 3; goto start; }
+        if (par->exprp[0] == '?') {
+            for (int k = 1, inv = 0; ; ++k) switch (par->exprp[k]) {
+                case  0 : par->exprp += k; return END;
+                case ')': par->exprp += k + 1; goto start;
+                case '-': inv = 1; break;
+                case 's': *dot_type = inv ? ANY : ANYNL; break;
+                case 'i': par->ignorecase = !inv; break;
+            }
         }
         return LBRA;
     case ')': return RBRA;
@@ -758,16 +759,14 @@ bldcclass(Parser *par)
                 };
                 for (unsigned i = 0; i < (sizeof cls/sizeof *cls); ++i)
                     if (!strncmp(par->exprp, cls[i].c, cls[i].n)) {
+                        rune = cls[i].r;
                         par->exprp += cls[i].n;
-                        *ep++ = cls[i].r;
-                        *ep++ = cls[i].r;
-                        goto proceed;
+                        break;
                     }
             }
         }
         *ep++ = rune;
         *ep++ = rune;
-        proceed:;
     }
 
     /* sort on span start */
@@ -1084,9 +1083,9 @@ regexec2(const Reprog *progp,    /* program to run */
 static int
 regexec9(const Reprog *progp,    /* program to run */
     const char *bol,    /* string to run machine on */
-    Resub *mp,    /* subexpression elements */
-    int ms,
-    int mflags)   /* number of elements at mp */
+    int ms,             /* number of elements at mp */
+    Resub mp[],         /* subexpression elements */
+    int mflags)         
 {
     Reljunk j;
     Relist relist0[LISTSIZE], relist1[LISTSIZE];
@@ -1099,7 +1098,7 @@ regexec9(const Reprog *progp,    /* program to run */
     j.eol = NULL;
 
     if (mp && mp->str && ms>0) {
-        if (mflags & creg_beginend)
+        if (mflags & creg_startend)
             j.starts = mp->str, j.eol = mp->str + mp->len;
         else if (mflags & creg_next)
             j.starts = mp->str + mp->len;
@@ -1148,11 +1147,9 @@ void cregex_replace(
             switch (*++sp) {
             case '0': case '1': case '2': case '3': case '4':
             case '5': case '6': case '7': case '8': case '9':
-                i = *sp-'0';
-                if (mp[i].str != NULL && mp!=NULL && ms>i)
-                    for (ssp = mp[i].str;
-                         ssp < (mp[i].str + mp[i].len);
-                         ssp++)
+                i = *sp - '0';
+                if (mp[i].str != NULL && mp != NULL && ms > i)
+                    for (ssp = mp[i].str; ssp < (mp[i].str + mp[i].len); ssp++)
                         if (dp < ep)
                             *dp++ = *ssp;
                 break;
@@ -1169,7 +1166,7 @@ void cregex_replace(
                 break;
             }
         } else if (*sp == '&') {                
-            if (mp[0].str != NULL && mp!=NULL && ms>0)
+            if (mp[0].str != NULL && mp != NULL && ms > 0)
                 for (ssp = mp[0].str; ssp < (mp[0].str + mp[0].len); ssp++)
                     if (dp < ep)
                         *dp++ = *ssp;
@@ -1195,7 +1192,7 @@ int cregex_compile(cregex_t *rx, const char* pattern, int cflags) {
 
 int cregex_find(const cregex_t *rx, const char* string, 
                 size_t nmatch, cregmatch_t match[], int mflags) {
-    int res = regexec9(rx->prog, string, match, nmatch, mflags);
+    int res = regexec9(rx->prog, string, nmatch, match, mflags);
     switch (res) {
     case 1:
         return 1 + rx->prog->nsubids;
