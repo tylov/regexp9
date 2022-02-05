@@ -42,7 +42,7 @@ typedef enum {
     creg_unmatchedrightparenthesis = -5,
     creg_toomanysubexpressions = -6,
     creg_toomanycharacterclasses = -7,
-    creg_malformedsquarebrackets = -8,
+    creg_malformedcharacterclass = -8,
     creg_missingoperand = -9,
     creg_unknownoperator = -10,
     creg_operandstackoverflow = -11,
@@ -53,7 +53,7 @@ typedef enum {
 enum {
     /* flags */
     creg_dotall = 1<<0,     /* compile */
-    creg_ignorecase = 1<<1, /* compile+match */
+    creg_caseless = 1<<1,   /* compile+match */
     creg_fullmatch = 1<<2,  /* match */
     creg_next = 1<<3,       /* match */
     creg_startend = 1<<4,   /* match */

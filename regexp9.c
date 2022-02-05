@@ -730,24 +730,22 @@ bldcclass(Parser *par)
     /* parse class into a set of spans */
     for (; ep < &r[NCCRUNE]; quoted = nextc(par, &rune)) {
         if (rune == 0) {
-            rcerror(par, creg_malformedsquarebrackets);
+            rcerror(par, creg_malformedcharacterclass);
             return 0;
         }
         if (!quoted) {
             if (rune == ']')
                 break;
             if (rune == '-') {
-                if (ep == r) {
-                    rcerror(par, creg_malformedsquarebrackets);
-                    return 0;
+                if (ep != r && *par->exprp != ']') {
+                    quoted = nextc(par, &rune);
+                    if (rune == 0) {
+                        rcerror(par, creg_malformedcharacterclass);
+                        return 0;
+                    }
+                    ep[-1] = rune;
+                    continue;
                 }
-                quoted = nextc(par, &rune);
-                if ((!quoted && rune == ']') || rune == 0) {
-                    rcerror(par, creg_malformedsquarebrackets);
-                    return 0;
-                }
-                *(ep-1) = rune;
-                continue;
             }
             if (rune == '[' && *par->exprp == ':') {
                 static struct { const char* c; int n, r; } cls[] = {
@@ -933,7 +931,7 @@ regexec1(const Reprog *progp,    /* program to run */
     Rune r, *rp, *ep;
     int match = 0;
 
-    bool icase = progp->flags.ignorecase || (mflags & creg_ignorecase);
+    bool icase = progp->flags.ignorecase || (mflags & creg_caseless);
     checkstart = j->starttype;
     if (mp)
         for (i=0; i<ms; i++) {
@@ -1183,28 +1181,25 @@ int cregex_compile(cregex_t *rx, const char* pattern, int cflags) {
     Parser par;
     rx->prog = regcomp1(&par, pattern, cflags & creg_dotall ? ANYNL : ANY);
     if (rx->prog) {
-        if (cflags & creg_ignorecase)
+        if (cflags & creg_caseless)
             rx->prog->flags.ignorecase = true;
         return 1 + rx->prog->nsubids;
     }
     return par.errors;
 }
 
+int cregex_captures(cregex_t rx) {
+    return rx.prog ? 1 + rx.prog->nsubids : 0;
+}
+
 int cregex_find(const cregex_t *rx, const char* string, 
                 size_t nmatch, cregmatch_t match[], int mflags) {
     int res = regexec9(rx->prog, string, nmatch, match, mflags);
     switch (res) {
-    case 1:
-        return 1 + rx->prog->nsubids;
-    case 0:
-        return creg_nomatch;
-    default:
-        return creg_matcherror;
+    case 1: return 1 + rx->prog->nsubids;
+    case 0: return creg_nomatch;
+    default: return creg_matcherror;
     }
-}
-
-int cregex_captures(cregex_t rx) {
-    return 1 + rx.prog->nsubids;
 }
 
 void cregex_free(cregex_t* preg) {

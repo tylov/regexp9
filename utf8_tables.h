@@ -1035,10 +1035,12 @@ static inline int cfold_lookup(uint32_t codep) {
 }
 
 static inline int utf8_isupper(uint32_t codep) {
+    if (codep < 128) return (codep >= 'A') & (codep <= 'Z');
     return (cfold_lookup(codep) & 1) == 0;
 }
 
 static inline int utf8_islower(uint32_t codep) {
+    if (codep <= 'z') return codep >= 'a';
     int idx = cfold_lookup(codep);
     return (idx != -1) & (idx & 1);
 }
